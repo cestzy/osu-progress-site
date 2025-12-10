@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Settings</title>
+    <link href="https://fonts.googleapis.com/css2?family=Varela+Round&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=4">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+
+<div class="navbar glass-panel">
+    <div class="nav-brand">osu! tracker</div>
+    <a href="/" class="btn-pill" style="text-decoration: none; padding: 8px 20px;">
+        <i class="fa-solid fa-arrow-left"></i> Back to Dashboard
+    </a>
+</div>
+
+<div class="main-container fade-in" style="max-width: 600px;">
+    <div class="panel-card glass-panel">
+        <div class="panel-header"><h3>Data Management</h3></div>
+        
+        <div class="settings-group" style="margin-top: 20px;">
+            <p style="color: #aaa; font-size: 14px; margin-bottom: 15px;">
+                Download a CSV file of all the plays tracked by this session manager.
+            </p>
+            <a href="/export_data" class="btn-pill" style="text-decoration:none; display:inline-block; background: #444;">
+                <i class="fa-solid fa-download"></i> Export Data (CSV)
+            </a>
+        </div>
+
+        <hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.1); margin: 30px 0;">
+
+        <div class="panel-header"><h3>Danger Zone</h3></div>
+        
+        <div class="settings-group" style="margin-top: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <div>
+                    <strong style="color: white;">Reset History</strong>
+                    <div style="color: #888; font-size: 12px;">Clears all tracked scores and resets mastery. Keeps goals.</div>
+                </div>
+                <button class="btn-pill" style="background: #ccaa00;" onclick="showWarning('reset')">
+                    Reset
+                </button>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <strong style="color: #ff6666;">Delete Account</strong>
+                    <div style="color: #888; font-size: 12px;">Permanently deletes all data, goals, and history.</div>
+                </div>
+                <button class="btn-pill" style="background: #ff4444;" onclick="showWarning('delete')">
+                    Delete
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="warning-modal" class="modal hidden" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; justify-content:center; align-items:center;">
+    <div class="glass-panel" style="padding: 30px; text-align: center; max-width: 400px; border: 1px solid #ff4444;">
+        <i class="fa-solid fa-triangle-exclamation" style="font-size: 40px; color: #ff4444; margin-bottom: 15px;"></i>
+        <h3 id="modal-title" style="margin-top: 0;">Are you sure?</h3>
+        <p id="modal-desc" style="color: #ccc;">This action cannot be undone.</p>
+        
+        <div style="display: flex; gap: 10px; justify-content: center; margin-top: 25px;">
+            <button class="btn-pill" style="background: #555;" onclick="closeModal()">Cancel</button>
+            <button id="confirm-btn" class="btn-pill" style="background: #ff4444;">Yes, do it</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    function showWarning(type) {
+        const modal = document.getElementById('warning-modal');
+        const title = document.getElementById('modal-title');
+        const desc = document.getElementById('modal-desc');
+        const btn = document.getElementById('confirm-btn');
+
+        modal.style.display = 'flex';
+
+        if (type === 'reset') {
+            title.innerText = "Reset History?";
+            desc.innerText = "This will wipe all tracked scores and mastery progress. Your goals will remain but reset to 0.";
+            btn.onclick = () => window.location.href = "/reset_history";
+        } else if (type === 'delete') {
+            title.innerText = "Delete Account?";
+            desc.innerText = "This will delete EVERYTHING. You will be logged out.";
+            btn.onclick = () => confirmDeleteAccount();
+        }
+    }
+
+    function closeModal() {
+        document.getElementById('warning-modal').style.display = 'none';
+    }
+
+    function confirmDeleteAccount() {
+        fetch('/delete_account', { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+                if(data.status === 'success') {
+                    // Clear local storage session tracking
+                    localStorage.removeItem('osu_session_active');
+                    window.location.href = '/';
+                }
+            });
+    }
+</script>
+
+</body>
+</html>

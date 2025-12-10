@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>osu! tracker - Login</title>
+    <link href="https://fonts.googleapis.com/css2?family=Varela+Round&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=4">
+    <style>
+        /* UPDATED PATH: static -> images -> login_bg.jpg */
+        .login-body {
+            background-image: url("{{ url_for('static', filename='images/login_bg.jpg') }}");
+        }
+    </style>
+</head>
+<body class="login-body">
+    
+    <div class="glass-panel login-card fade-in">
+        <img src="{{ url_for('static', filename='images/osu_logo.png') }}" alt="osu!" class="login-logo">
+        
+        <h2 style="margin: 0 0 10px 0; color: #fff;">Welcome Back</h2>
+        <p style="color: #ccc; font-size: 14px; margin-bottom: 30px; line-height: 1.5;">
+            Track your progress, set goals, and master the rhythm.
+        </p>
+        
+        <a href="/login" class="btn-pill" style="justify-content: center; padding: 12px; font-size: 16px;">
+            <i class="fa-solid fa-right-to-bracket"></i> Login with osu!
+        </a>
+        
+        <div style="margin-top: 20px; font-size: 12px; color: #666;">
+            made by cestzy
+        </div>
+    </div>
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</body>
+</html>
