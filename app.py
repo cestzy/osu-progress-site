@@ -15,7 +15,7 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY")
 # --- CONFIGURATION ---
 CLIENT_ID = os.environ.get("OSU_CLIENT_ID")
 CLIENT_SECRET = os.environ.get("OSU_CLIENT_SECRET")
-# NOTE: Update this to your Render URL callback when deploying (e.g. https://your-app.onrender.com/callback)
+# NOTE: Update this to your Render URL callback when deploying
 REDIRECT_URI = os.environ.get("REDIRECT_URI", "http://127.0.0.1:5000/callback") 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
@@ -122,67 +122,82 @@ def home():
     if 'user_id' not in session:
         return render_template('login.html')
 
-    conn = get_db_connection()
-    cur = conn.cursor()
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
 
-    # 1. Fetch User Info
-    cur.execute("SELECT username, global_rank FROM osu_users WHERE user_id = %s", (session['user_id'],))
-    user_row = cur.fetchone()
-    current_rank = user_row[1] if user_row and user_row[1] else 0
+        # 1. Fetch User Info
+        cur.execute("SELECT username, global_rank FROM osu_users WHERE user_id = %s", (session['user_id'],))
+        user_row = cur.fetchone()
 
-    # 2. Fetch Mastery Stats
-    cur.execute("SELECT nm_rating, hd_rating, hr_rating, dt_rating, fl_rating FROM user_mastery WHERE user_id = %s", (session['user_id'],))
-    stats = cur.fetchone()
-    if not stats: stats = (0, 0, 0, 0, 0)
+        # SAFETY CHECK: If user is in session (cookies) but not in DB, force logout
+        # This fixes the "Internal Server Error" on home page after DB wipes
+        if not user_row:
+            cur.close()
+            conn.close()
+            session.clear()
+            return redirect('/')
 
-    # 3. Fetch Active Goals
-    cur.execute("""
-        SELECT id, title, current_progress, target_progress, criteria, is_locked, is_paused
-        FROM user_active_goals 
-        WHERE user_id = %s AND is_completed = FALSE
-        ORDER BY display_order ASC, assigned_at DESC
-    """, (session['user_id'],))
-    active_rows = cur.fetchall()
-    
-    formatted_goals = []
-    for row in active_rows:
-        formatted_goals.append({
-            "id": row[0],
-            "title": row[1],
-            "current_count": row[2],
-            "count_needed": row[3],
-            "criteria": row[4],
-            "is_locked": row[5],
-            "is_paused": row[6],
-            "type": row[4].get('type', 'count').upper()
-        })
+        current_rank = user_row[1] if user_row and user_row[1] else 0
 
-    # 4. Fetch Star Counts
-    cur.execute("""
-        SELECT FLOOR(stars) as star_int, COUNT(*) 
-        FROM score_history 
-        WHERE user_id = %s 
-        GROUP BY star_int 
-        ORDER BY star_int
-    """, (session['user_id'],))
-    hist_rows = cur.fetchall()
-    star_data = {int(r[0]): r[1] for r in hist_rows}
+        # 2. Fetch Mastery Stats
+        cur.execute("SELECT nm_rating, hd_rating, hr_rating, dt_rating, fl_rating FROM user_mastery WHERE user_id = %s", (session['user_id'],))
+        stats = cur.fetchone()
+        if not stats: stats = (0, 0, 0, 0, 0)
 
-    cur.close()
-    conn.close()
+        # 3. Fetch Active Goals
+        cur.execute("""
+            SELECT id, title, current_progress, target_progress, criteria, is_locked, is_paused
+            FROM user_active_goals 
+            WHERE user_id = %s AND is_completed = FALSE
+            ORDER BY display_order ASC, assigned_at DESC
+        """, (session['user_id'],))
+        active_rows = cur.fetchall()
+        
+        formatted_goals = []
+        for row in active_rows:
+            formatted_goals.append({
+                "id": row[0],
+                "title": row[1],
+                "current_count": row[2],
+                "count_needed": row[3],
+                "criteria": row[4],
+                "is_locked": row[5],
+                "is_paused": row[6],
+                "type": row[4].get('type', 'count').upper()
+            })
 
-    user_obj = {
-        'username': session['username'],
-        'avatar_url': f"https://a.ppy.sh/{session['user_id']}",
-        'id': session['user_id']
-    }
+        # 4. Fetch Star Counts
+        cur.execute("""
+            SELECT FLOOR(stars) as star_int, COUNT(*) 
+            FROM score_history 
+            WHERE user_id = %s 
+            GROUP BY star_int 
+            ORDER BY star_int
+        """, (session['user_id'],))
+        hist_rows = cur.fetchall()
+        star_data = {int(r[0]): r[1] for r in hist_rows}
 
-    return render_template('index.html', 
-                           user=user_obj, 
-                           rank=current_rank,
-                           goals=formatted_goals,
-                           stats=stats,
-                           star_data=star_data)
+        cur.close()
+        conn.close()
+
+        user_obj = {
+            'username': session['username'],
+            'avatar_url': f"https://a.ppy.sh/{session['user_id']}",
+            'id': session['user_id']
+        }
+
+        return render_template('index.html', 
+                               user=user_obj, 
+                               rank=current_rank,
+                               goals=formatted_goals,
+                               stats=stats,
+                               star_data=star_data)
+    except Exception as e:
+        # Fallback error catcher
+        print(f"Error in home route: {e}")
+        session.clear()
+        return redirect('/')
 
 # --- GOAL MANAGEMENT ROUTES ---
 
@@ -192,46 +207,68 @@ def add_goal():
     
     data = request.json
     
-    # 1. Grab inputs
-    goal_type = data.get('type', 'count')
-    count = int(data.get('count_needed', 1))
-    min_stars = float(data.get('target_stars', 0))
-    
-    # V4: Accuracy Inputs
-    use_acc = data.get('use_accuracy', False)
-    acc_needed = float(data.get('accuracy_needed', 0)) if use_acc else 0
+    try:
+        # 1. Safe conversions (Handle empty strings or missing data)
+        # Fixes the "Internal Server Error" when fields are empty
+        try:
+            count = int(data.get('count_needed', 1))
+        except (ValueError, TypeError):
+            count = 1
 
-    # 2. Build Criteria JSON
-    criteria = {
-        "type": goal_type,
-        "min_stars": min_stars,
-        "mod": "Any",
-        "use_acc": use_acc,
-        "acc_needed": acc_needed,
-        "streak": False 
-    }
+        try:
+            min_stars = float(data.get('target_stars', 0))
+        except (ValueError, TypeError):
+            min_stars = 0.0
+        
+        goal_type = data.get('type', 'count')
+        use_acc = data.get('use_accuracy', False)
+        
+        try:
+            acc_needed = float(data.get('accuracy_needed', 0)) if use_acc else 0
+        except (ValueError, TypeError):
+            acc_needed = 0.0
 
-    # 3. Generate Title
-    title = data.get('title', f"{min_stars}★+ {goal_type.upper()}")
+        # 2. Build Criteria JSON
+        criteria = {
+            "type": goal_type,
+            "min_stars": min_stars,
+            "mod": "Any",
+            "use_acc": use_acc,
+            "acc_needed": acc_needed,
+            "streak": False 
+        }
 
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    # 4. Get max order
-    cur.execute("SELECT MAX(display_order) FROM user_active_goals WHERE user_id = %s", (session['user_id'],))
-    max_res = cur.fetchone()[0]
-    new_order = (max_res + 1) if max_res is not None else 0
+        # 3. Generate Title
+        title = data.get('title')
+        if not title:
+            title = f"{min_stars}★+ {goal_type.upper()}"
 
-    cur.execute("""
-        INSERT INTO user_active_goals (user_id, title, target_progress, criteria, display_order, is_locked, is_paused)
-        VALUES (%s, %s, %s, %s, %s, FALSE, FALSE)
-    """, (session['user_id'], title, count, json.dumps(criteria), new_order))
-    
-    conn.commit()
-    cur.close()
-    conn.close()
-    
-    return jsonify({'status': 'success'})
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # 4. Get max order
+        cur.execute("SELECT MAX(display_order) FROM user_active_goals WHERE user_id = %s", (session['user_id'],))
+        row = cur.fetchone()
+        max_res = row[0] if row else None
+        new_order = (max_res + 1) if max_res is not None else 0
+
+        # 5. Insert Goal
+        cur.execute("""
+            INSERT INTO user_active_goals (user_id, title, target_progress, criteria, display_order, is_locked, is_paused)
+            VALUES (%s, %s, %s, %s, %s, FALSE, FALSE)
+        """, (session['user_id'], title, count, json.dumps(criteria), new_order))
+        
+        conn.commit()
+        return jsonify({'status': 'success'})
+
+    except Exception as e:
+        print(f"ERROR adding goal: {e}")
+        if 'conn' in locals(): conn.rollback()
+        return jsonify({'error': 'Internal Error', 'details': str(e)}), 500
+        
+    finally:
+        if 'cur' in locals(): cur.close()
+        if 'conn' in locals(): conn.close()
 
 @app.route('/update_goal_status', methods=['POST'])
 def update_goal_status():
