@@ -4,6 +4,7 @@ import psycopg2
 import json
 import csv
 import io
+import traceback
 from flask import Flask, redirect, request, session, url_for, render_template, make_response, jsonify
 from dotenv import load_dotenv
 
@@ -131,7 +132,6 @@ def home():
         user_row = cur.fetchone()
 
         # SAFETY CHECK: If user is in session (cookies) but not in DB, force logout
-        # This fixes the "Internal Server Error" on home page after DB wipes
         if not user_row:
             cur.close()
             conn.close()
@@ -156,10 +156,14 @@ def home():
         
         formatted_goals = []
         for row in active_rows:
+            # FIX: Handle NULL/None values for current_progress
+            # If the DB has NULL, we force it to 0 so the template doesn't crash
+            current_prog = row[2] if row[2] is not None else 0
+            
             formatted_goals.append({
                 "id": row[0],
                 "title": row[1],
-                "current_count": row[2],
+                "current_count": current_prog, 
                 "count_needed": row[3],
                 "criteria": row[4],
                 "is_locked": row[5],
@@ -194,10 +198,11 @@ def home():
                                stats=stats,
                                star_data=star_data)
     except Exception as e:
-        # Fallback error catcher
+        # Debugging: Print error to console for Render Logs
         print(f"Error in home route: {e}")
-        session.clear()
-        return redirect('/')
+        traceback.print_exc()
+        # You could also return a friendly error page here if desired
+        return f"App Error: {e}", 500
 
 # --- GOAL MANAGEMENT ROUTES ---
 
@@ -209,7 +214,6 @@ def add_goal():
     
     try:
         # 1. Safe conversions (Handle empty strings or missing data)
-        # Fixes the "Internal Server Error" when fields are empty
         try:
             count = int(data.get('count_needed', 1))
         except (ValueError, TypeError):
@@ -252,10 +256,12 @@ def add_goal():
         max_res = row[0] if row else None
         new_order = (max_res + 1) if max_res is not None else 0
 
-        # 5. Insert Goal
+        # 5. Insert Goal (FIXED: Explicitly set current_progress to 0)
         cur.execute("""
-            INSERT INTO user_active_goals (user_id, title, target_progress, criteria, display_order, is_locked, is_paused)
-            VALUES (%s, %s, %s, %s, %s, FALSE, FALSE)
+            INSERT INTO user_active_goals (
+                user_id, title, current_progress, target_progress, criteria, display_order, is_locked, is_paused
+            )
+            VALUES (%s, %s, 0, %s, %s, %s, FALSE, FALSE)
         """, (session['user_id'], title, count, json.dumps(criteria), new_order))
         
         conn.commit()
@@ -401,98 +407,105 @@ def process_session_logic():
     if not token: return {"status": "error", "message": "Token expired"}
 
     headers = {'Authorization': f'Bearer {token}'}
-    response = requests.get(f'https://osu.ppy.sh/api/v2/users/{session["user_id"]}/scores/recent?include_fails=0&limit=50', headers=headers)
-    
-    if response.status_code != 200: return {"status": "error", "message": "API Error"}
+    try:
+        response = requests.get(f'https://osu.ppy.sh/api/v2/users/{session["user_id"]}/scores/recent?include_fails=0&limit=50', headers=headers)
         
-    recent_scores = response.json()
-    new_scores_count = 0
-    
-    conn = get_db_connection()
-    cur = conn.cursor()
-
-    cur.execute("SELECT id, current_progress, target_progress, criteria, is_paused FROM user_active_goals WHERE user_id = %s AND is_completed = FALSE", (session['user_id'],))
-    active_goals = cur.fetchall()
-
-    for score in reversed(recent_scores):
-        osu_score_id = score['id']
-        
-        cur.execute("SELECT id FROM score_history WHERE osu_score_id = %s", (osu_score_id,)) 
-        if cur.fetchone(): continue
-
-        beatmap = score['beatmap']
-        beatmapset = score['beatmapset']
-        stars = beatmap['difficulty_rating']
-        acc = score['accuracy']
-        raw_mods = score['mods']
-        is_perfect = score['perfect']
-
-        mod_group = "NM"
-        if "DT" in raw_mods or "NC" in raw_mods: mod_group = "DT"
-        elif "HR" in raw_mods: mod_group = "HR"
-        elif "HD" in raw_mods: mod_group = "HD"
-        elif "FL" in raw_mods: mod_group = "FL"
-
-        map_max_combo = beatmap.get('max_combo', 0)
-        if map_max_combo == 0: map_max_combo = score['max_combo']
-        eff_stars = calculate_effective_stars(stars, acc, score['max_combo'], map_max_combo)
-
-        # CHECK GOALS
-        for goal in active_goals:
-            g_id, g_current, g_target, g_criteria, g_is_paused = goal
+        if response.status_code != 200: return {"status": "error", "message": "API Error"}
             
-            if g_is_paused: continue
-            if stars < g_criteria.get('min_stars', 0): continue 
+        recent_scores = response.json()
+        new_scores_count = 0
+        
+        conn = get_db_connection()
+        cur = conn.cursor()
 
-            if g_criteria.get('use_acc', False):
-                required_acc = float(g_criteria.get('acc_needed', 0))
-                if (acc * 100) < required_acc: continue
+        cur.execute("SELECT id, current_progress, target_progress, criteria, is_paused FROM user_active_goals WHERE user_id = %s AND is_completed = FALSE", (session['user_id'],))
+        active_goals = cur.fetchall()
 
-            req_mod = g_criteria.get('mod', 'Any')
-            if req_mod != 'Any' and req_mod != mod_group: continue
-
-            req_type = g_criteria.get('type', 'count')
-            success = False
+        for score in reversed(recent_scores):
+            osu_score_id = score['id']
             
-            if req_type == 'pass':
-                success = (score['rank'] != 'F')
-            elif req_type == 'fc':
-                if is_perfect or score['rank'] in ['S', 'SH', 'X', 'XH']:
-                    success = True
-            elif req_type == 'ss':
-                if score['rank'] in ['X', 'XH'] or (is_perfect and acc == 1.0):
-                    success = True
-            elif req_type == 'count':
-                 success = True
+            cur.execute("SELECT id FROM score_history WHERE osu_score_id = %s", (osu_score_id,)) 
+            if cur.fetchone(): continue
 
-            if success:
-                new_prog = g_current + 1
-                completed = (new_prog >= g_target)
-                cur.execute("UPDATE user_active_goals SET current_progress = %s, is_completed = %s WHERE id = %s", (new_prog, completed, g_id))
-            else:
-                if g_criteria.get('streak', False):
-                    cur.execute("UPDATE user_active_goals SET current_progress = 0 WHERE id = %s", (g_id,))
+            beatmap = score['beatmap']
+            beatmapset = score['beatmapset']
+            stars = beatmap['difficulty_rating']
+            acc = score['accuracy']
+            raw_mods = score['mods']
+            is_perfect = score['perfect']
 
-        # Save History
-        cur.execute("""
-            INSERT INTO score_history (user_id, osu_score_id, beatmap_name, mods, stars, effective_stars, accuracy)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-        """, (session['user_id'], osu_score_id, beatmapset['title'], mod_group, stars, eff_stars, acc))
+            mod_group = "NM"
+            if "DT" in raw_mods or "NC" in raw_mods: mod_group = "DT"
+            elif "HR" in raw_mods: mod_group = "HR"
+            elif "HD" in raw_mods: mod_group = "HD"
+            elif "FL" in raw_mods: mod_group = "FL"
+
+            map_max_combo = beatmap.get('max_combo', 0)
+            if map_max_combo == 0: map_max_combo = score['max_combo']
+            eff_stars = calculate_effective_stars(stars, acc, score['max_combo'], map_max_combo)
+
+            # CHECK GOALS
+            for goal in active_goals:
+                g_id, g_current, g_target, g_criteria, g_is_paused = goal
+                
+                # Handle NULL progress safely
+                if g_current is None: g_current = 0
+
+                if g_is_paused: continue
+                if stars < g_criteria.get('min_stars', 0): continue 
+
+                if g_criteria.get('use_acc', False):
+                    required_acc = float(g_criteria.get('acc_needed', 0))
+                    if (acc * 100) < required_acc: continue
+
+                req_mod = g_criteria.get('mod', 'Any')
+                if req_mod != 'Any' and req_mod != mod_group: continue
+
+                req_type = g_criteria.get('type', 'count')
+                success = False
+                
+                if req_type == 'pass':
+                    success = (score['rank'] != 'F')
+                elif req_type == 'fc':
+                    if is_perfect or score['rank'] in ['S', 'SH', 'X', 'XH']:
+                        success = True
+                elif req_type == 'ss':
+                    if score['rank'] in ['X', 'XH'] or (is_perfect and acc == 1.0):
+                        success = True
+                elif req_type == 'count':
+                     success = True
+
+                if success:
+                    new_prog = g_current + 1
+                    completed = (new_prog >= g_target)
+                    cur.execute("UPDATE user_active_goals SET current_progress = %s, is_completed = %s WHERE id = %s", (new_prog, completed, g_id))
+                else:
+                    if g_criteria.get('streak', False):
+                        cur.execute("UPDATE user_active_goals SET current_progress = 0 WHERE id = %s", (g_id,))
+
+            # Save History
+            cur.execute("""
+                INSERT INTO score_history (user_id, osu_score_id, beatmap_name, mods, stars, effective_stars, accuracy)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (session['user_id'], osu_score_id, beatmapset['title'], mod_group, stars, eff_stars, acc))
+            
+            col_name = f"{mod_group.lower()}_rating"
+            cur.execute(f"UPDATE user_mastery SET {col_name} = ({col_name} * 0.95) + ({eff_stars} * 0.05) WHERE user_id = %s", (session['user_id'],))
+            
+            new_scores_count += 1
+
+        conn.commit()
         
-        col_name = f"{mod_group.lower()}_rating"
-        cur.execute(f"UPDATE user_mastery SET {col_name} = ({col_name} * 0.95) + ({eff_stars} * 0.05) WHERE user_id = %s", (session['user_id'],))
+        cur.execute("SELECT nm_rating, hd_rating, hr_rating, dt_rating, fl_rating FROM user_mastery WHERE user_id = %s", (session['user_id'],))
+        new_stats = cur.fetchone()
         
-        new_scores_count += 1
-
-    conn.commit()
-    
-    cur.execute("SELECT nm_rating, hd_rating, hr_rating, dt_rating, fl_rating FROM user_mastery WHERE user_id = %s", (session['user_id'],))
-    new_stats = cur.fetchone()
-    
-    cur.close()
-    conn.close()
-    
-    return { "status": "success", "new_scores_count": new_scores_count, "new_stats": list(new_stats) if new_stats else [] }
+        cur.close()
+        conn.close()
+        
+        return { "status": "success", "new_scores_count": new_scores_count, "new_stats": list(new_stats) if new_stats else [] }
+    except Exception as e:
+        print(f"Session Error: {e}")
+        return {"status": "error", "message": str(e)}
 
 # --- AUTH ROUTES ---
 
