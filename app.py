@@ -80,6 +80,7 @@ def init_db():
                 accuracy FLOAT, 
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 is_fc BOOLEAN DEFAULT FALSE,
+                is_pfc BOOLEAN DEFAULT FALSE,
                 beatmap_id BIGINT,
                 map_length INT,
                 max_combo INT
@@ -105,6 +106,7 @@ def init_db():
             cur.execute("ALTER TABLE score_history ADD COLUMN IF NOT EXISTS map_length INT;")
             cur.execute("ALTER TABLE score_history ADD COLUMN IF NOT EXISTS max_combo INT;")
             cur.execute("ALTER TABLE score_history ADD COLUMN IF NOT EXISTS is_fc BOOLEAN DEFAULT FALSE;")
+            cur.execute("ALTER TABLE score_history ADD COLUMN IF NOT EXISTS is_pfc BOOLEAN DEFAULT FALSE;")
             cur.execute("ALTER TABLE user_active_goals ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP;")
         except:
             pass  # Columns might already exist
@@ -631,15 +633,71 @@ def process_session_logic():
             map_length = beatmap.get('total_length', 0)  # in seconds
             beatmap_id = beatmap.get('id', 0)
             
-            # Strict FC: combo must exactly match map max combo (for database storage)
-            is_strict_fc = (score['max_combo'] == map_max_combo and map_max_combo > 0)
+            # Get score rank and statistics
+            score_rank = score.get('rank', '')
+            statistics = score.get('statistics', {})
+            miss_count = statistics.get('miss_count', 0)
+            count_100 = statistics.get('count_100', 0)
+            count_50 = statistics.get('count_50', 0)
+            count_300 = statistics.get('count_300', 0)
             
-            # Flexible FC: no misses (counts both PFC and non-PFC scores for goal progress)
-            # This includes scores with slider breaks but no misses, unlike strict FC which requires perfect combo match
-            miss_count = score.get('statistics', {}).get('miss_count', 0)
-            # A score is an FC if it has no misses and passed (not an F rank)
-            # This is more lenient than strict FC, allowing non-PFC scores to count for goals
-            is_flexible_fc = (miss_count == 0 and score['rank'] != 'F')
+            # PFC (Perfect Full Combo) Logic:
+            # PFC = max_combo exactly matches map_max_combo AND no misses
+            # Can be S rank or SS rank, can have 100s/50s (missing slider ends)
+            # The key is: combo matches exactly, meaning no slider breaks occurred
+            is_pfc = (miss_count == 0 and 
+                     map_max_combo > 0 and 
+                     score['max_combo'] == map_max_combo)
+            
+            # FC (Full Combo) Logic (Community Definition):
+            # True FC = no misses, no slider breaks, only missing slider ends
+            # FC scores that lost combo only via dropped slider ends (100s/50s) are widely 
+            # considered by the community to be full combos, even if max_combo < map_max_combo.
+            # This differs from the game client and website's display.
+            #
+            # The challenge: Distinguishing dropped slider ends from slider breaks
+            # - Dropped slider ends: combo is close to map max (e.g., 370/371, 1130/1159) = FC
+            # - Slider break: combo is significantly lower = NOT FC
+            #
+            # Algorithm:
+            # 1. F rank or has misses = NOT FC
+            # 2. If combo matches map max exactly = PFC (and FC)
+            # 3. If combo is close to map max (within threshold) = FC (dropped slider ends)
+            # 4. If combo is significantly lower = NOT FC (slider break)
+            #
+            # Threshold: Use percentage-based approach with reasonable limits
+            # Examples: 370/371 (0.27% off) = FC, 1130/1159 (2.5% off) = FC
+            # Use 3% or 30 combo, whichever is smaller, to account for larger maps
+            
+            is_fc = False
+            if score_rank == 'F':
+                # F rank = Failed, never FC
+                is_fc = False
+            elif miss_count > 0:
+                # Has misses = NOT FC
+                is_fc = False
+            elif map_max_combo > 0:
+                combo_diff = map_max_combo - score['max_combo']
+                
+                if combo_diff == 0:
+                    # Combo matches exactly = PFC (and FC)
+                    is_fc = True
+                else:
+                    # Calculate threshold: 3% of map max combo, or 30 combo, whichever is smaller
+                    # This handles cases like 370/371 (1 off) and 1130/1159 (29 off)
+                    percentage_threshold = int(map_max_combo * 0.03)
+                    absolute_threshold = 30
+                    threshold = min(percentage_threshold, absolute_threshold)
+                    
+                    if combo_diff <= threshold:
+                        # Combo is close to map max (likely dropped slider ends) = FC
+                        is_fc = True
+                    else:
+                        # Combo is significantly lower (likely slider break) = NOT FC
+                        is_fc = False
+            else:
+                # Can't determine (map_max_combo is 0 or invalid)
+                is_fc = False
 
             mod_group = "NM"
             if "DT" in raw_mods or "NC" in raw_mods: mod_group = "DT"
@@ -704,7 +762,7 @@ def process_session_logic():
                 if req_type == 'pass':
                     success = (score['rank'] != 'F')
                 elif req_type == 'fc':
-                    success = is_flexible_fc # Use flexible FC check (counts both PFC and non-PFC)
+                    success = is_fc # Use osu! FC logic (SS rank or combo matches map max)
                 elif req_type == 'ss':
                     if score['rank'] in ['X', 'XH']:
                         success = True
@@ -733,12 +791,12 @@ def process_session_logic():
                     if g_criteria.get('streak', False):
                         cur.execute("UPDATE user_active_goals SET current_progress = 0 WHERE id = %s", (g_id,))
 
-            # Save History (V6: includes is_fc, mod_combination, beatmap_id, map_length, max_combo)
+            # Save History (includes is_fc, is_pfc, mod_combination, beatmap_id, map_length, max_combo)
             cur.execute("""
-                INSERT INTO score_history (user_id, osu_score_id, beatmap_name, mods, mod_combination, stars, effective_stars, accuracy, is_fc, beatmap_id, map_length, max_combo)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO score_history (user_id, osu_score_id, beatmap_name, mods, mod_combination, stars, effective_stars, accuracy, is_fc, is_pfc, beatmap_id, map_length, max_combo)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
-            """, (session['user_id'], osu_score_id, beatmapset['title'], mod_group, mod_combination, stars, eff_stars, acc, is_strict_fc, beatmap_id, map_length, score['max_combo']))
+            """, (session['user_id'], osu_score_id, beatmapset['title'], mod_group, mod_combination, stars, eff_stars, acc, is_fc, is_pfc, beatmap_id, map_length, score['max_combo']))
             
             score_history_id = cur.fetchone()[0]
             
@@ -759,7 +817,7 @@ def process_session_logic():
                 'rank': score['rank'], 
                 'mods': mod_group, 
                 'mod_combination': mod_combination,
-                'is_fc': is_strict_fc,
+                'is_fc': is_fc,
                 'timestamp': score.get('created_at', '')
             })
 

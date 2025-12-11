@@ -183,6 +183,46 @@ def migrate_v7():
     except Exception as e:
         print(f"❌ General Error occurred: {e}")
 
+def migrate_v8():
+    """Adds the is_pfc column to score_history for Perfect Full Combo tracking."""
+    if not DATABASE_URL:
+        print("❌ ERROR: DATABASE_URL not found in environment variables. Please check your .env file.")
+        return
+
+    print("🔧 Running v8 Migration: Adding is_pfc column...")
+    print("Connecting to Neon database...")
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+
+        # Check if table exists
+        if not check_table_exists(cur, 'score_history'):
+            print("⚠️  Warning: score_history table does not exist. It will be created on first app run.")
+            conn.commit()
+            cur.close()
+            conn.close()
+            print("✅ v8 Migration completed (table will be created by app)")
+            return
+
+        # Check if column already exists
+        if check_column_exists(cur, 'score_history', 'is_pfc'):
+            print("✓ Column 'is_pfc' already exists in score_history")
+        else:
+            print("Adding 'is_pfc' column to score_history...")
+            cur.execute("ALTER TABLE score_history ADD COLUMN is_pfc BOOLEAN DEFAULT FALSE;")
+            print("✓ Column 'is_pfc' added successfully")
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        print("✅ v8 Database Schema Updated Successfully!")
+
+    except psycopg2.Error as e:
+        print(f"❌ PostgreSQL Error occurred: {e}")
+        print("Check if your DATABASE_URL is correct and accessible.")
+    except Exception as e:
+        print(f"❌ General Error occurred: {e}")
+
 def verify_schema():
     """Verify that all required columns and tables exist."""
     if not DATABASE_URL:
@@ -195,7 +235,7 @@ def verify_schema():
         cur = conn.cursor()
 
         # Check score_history columns
-        score_history_columns = ['mod_combination', 'beatmap_id', 'map_length', 'max_combo', 'is_fc']
+        score_history_columns = ['mod_combination', 'beatmap_id', 'map_length', 'max_combo', 'is_fc', 'is_pfc']
         print("\nChecking score_history table:")
         if check_table_exists(cur, 'score_history'):
             for col in score_history_columns:
@@ -244,6 +284,8 @@ def migrate_all():
     migrate_v6()
     print()
     migrate_v7()
+    print()
+    migrate_v8()
     
     print("\n" + "=" * 60)
     print("✅ All migrations completed!")
