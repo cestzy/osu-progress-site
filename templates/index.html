@@ -20,17 +20,20 @@
 
 <div class="navbar glass-panel">
     <div class="nav-brand">osu! tracker</div>
+    
     <div class="nav-tabs">
         <div class="nav-tab active" onclick="switchTab('dashboard')">Dashboard</div>
         <div class="nav-tab" onclick="switchTab('goals')">Goals</div>
         <div class="nav-tab" onclick="switchTab('feed')">Feed</div>
     </div>
+
     <div class="profile-section" onclick="toggleDropdown()">
         <div class="profile-text">
             <div class="username">{{ user.username }}</div>
             <div class="rank">#{{ rank }}</div>
         </div>
         <div class="profile-pic" style="background: url('{{ user.avatar_url }}') center/cover;"></div>
+        
         <div class="dropdown-menu" id="userDropdown">
             <a href="/settings" class="dropdown-item">Settings</a>
             <div class="dropdown-item text-danger" onclick="confirmLogout()">Logout</div>
@@ -39,20 +42,26 @@
 </div>
 
 <div class="main-container fade-in">
+    
     <div id="tab-dashboard" class="tab-content">
+        
         <div class="controls-area" style="display: flex; align-items: center; gap: 10px;">
             <button id="sessionBtn" class="btn-pill" onclick="toggleSession()">
                 <span class="btn-icon"><i class="fa-solid fa-bolt"></i></span> <span id="sessionBtnText">Start Session</span>
             </button>
+            
             <button class="btn-pill icon-only" onclick="forceRefresh()" title="Force Check Scores">
                 <i class="fa-solid fa-arrows-rotate" id="refreshIcon"></i>
             </button>
+
             <div id="sessionTimer" class="session-timer" style="opacity: 0;">00:00</div>
         </div>
 
         <div class="dashboard-grid">
+            
             <div class="panel-card glass-panel">
                 <div class="panel-header"><h3>Mastery Levels</h3></div>
+                
                 <div class="mastery-list">
                     {% for mod, val in [('NM', stats[0]), ('HD', stats[1]), ('HR', stats[2]), ('DT', stats[3])] %}
                     <div class="mastery-row">
@@ -85,13 +94,15 @@
                     {% if goals %}
                         {% for goal in goals %}
                         <div class="osu-goal-card {% if goal.is_paused %}paused{% endif %} {% if goal.is_locked %}locked{% endif %}" 
-                             data-id="{{ goal.id }}" draggable="{{ 'false' if goal.is_locked else 'true' }}">
+                             data-id="{{ goal.id }}" 
+                             draggable="{{ 'false' if goal.is_locked else 'true' }}">
                             
                             <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px;">
                                 <div class="goal-badges">
                                     <span class="goal-type-badge">{{ goal.type }}</span>
                                     {% if goal.criteria.mod != 'Any' %}<span class="goal-type-badge" style="background:#555">{{ goal.criteria.mod }}</span>{% endif %}
                                 </div>
+                                
                                 <div class="goal-menu-container" style="position: relative;">
                                     <i class="fa-solid fa-ellipsis-vertical menu-dots" onclick="toggleGoalMenu('{{ goal.id }}')"></i>
                                     <div class="goal-dropdown" id="menu-{{ goal.id }}">
@@ -122,12 +133,14 @@
                     {% endif %}
                 </div>
             </div>
+
         </div>
     </div>
 
     <div id="tab-goals" class="tab-content" style="display: none;">
         <div class="panel-card glass-panel" style="max-width: 600px; margin: 0 auto;">
             <div class="panel-header"><h3>Create Custom Goal</h3></div>
+            
             <div class="goal-creator-form">
                 <div class="form-group">
                     <label>Goal Type</label>
@@ -137,6 +150,7 @@
                         <option value="ss">SS (Perfect)</option>
                     </select>
                 </div>
+
                 <div class="form-row" style="display: flex; gap: 15px;">
                     <div class="form-group" style="flex: 1;">
                         <label>Count</label>
@@ -150,6 +164,7 @@
                         <input type="number" id="goal-stars" value="5.0" step="0.1" class="input-dark" oninput="updateSentencePreview()">
                     </div>
                 </div>
+
                 <div class="form-group">
                     <label>Required Mod</label>
                     <select id="goal-mod" class="input-dark" onchange="updateSentencePreview()">
@@ -160,6 +175,7 @@
                         <option value="DT">DoubleTime (DT)</option>
                     </select>
                 </div>
+
                 <div class="form-group">
                     <div class="checkbox-wrapper" style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
                         <input type="checkbox" id="use-acc" onchange="toggleAccInput()">
@@ -167,10 +183,12 @@
                     </div>
                     <input type="number" id="goal-acc" placeholder="98.5" min="0" max="100" step="0.5" class="input-dark" disabled oninput="updateSentencePreview()">
                 </div>
+
                 <div class="preview-box" style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px; border-left: 3px solid var(--osu-pink); margin: 20px 0;">
                     <label style="color: #888; font-size: 12px; display: block;">PREVIEW</label>
                     <div id="sentence-preview" style="font-size: 1.1em; font-weight: bold;">FC one 5.0★ map</div>
                 </div>
+
                 <button class="btn-create" onclick="submitGoal()">Create Goal +</button>
             </div>
         </div>
@@ -184,6 +202,7 @@
             </div>
         </div>
     </div>
+
 </div>
 
 <div id="warning-popup" class="modal hidden" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; justify-content:center; align-items:center;">
@@ -278,7 +297,7 @@
                         const prog = document.getElementById('prog-'+g.id);
                         const fill = document.getElementById('fill-'+g.id);
                         if(prog) prog.innerText = g.current;
-                        if(fill) fill.style.width = (g.current / g.target * 100) + '%';
+                        if(f) fill.style.width = (g.current / g.target * 100) + '%';
                     });
 
                     // 3. Update FCs
@@ -321,7 +340,6 @@
         const starInput = document.getElementById('goal-stars');
         const isChecked = document.getElementById('use-stars').checked;
         starInput.disabled = !isChecked;
-        // If disabled, set value to 0 so the Python code skips the star check
         starInput.value = isChecked ? starInput.value || 5.0 : 0; 
         updateSentencePreview();
     }
@@ -384,8 +402,26 @@
     }
 
     // --- DRAG & DROP (PRESERVED) ---
-    // Note: If you want to enable saving the drag order, you need a function here 
-    // to collect IDs and send them to the /reorder_goals route.
+    const draggables = document.querySelectorAll('.osu-goal-card');
+    const container = document.getElementById('goalListDashboard');
+    draggables.forEach(d => {
+        d.addEventListener('dragstart', (e) => { if(d.getAttribute('draggable')==='false') {e.preventDefault(); return;} d.classList.add('dragging'); });
+        d.addEventListener('dragend', () => d.classList.remove('dragging'));
+    });
+    container.addEventListener('dragover', e => {
+        e.preventDefault();
+        const after = getDragAfterElement(container, e.clientY);
+        const drag = document.querySelector('.dragging');
+        if(!drag) return;
+        after == null ? container.appendChild(drag) : container.insertBefore(drag, after);
+    });
+    function getDragAfterElement(container, y) {
+        return [...container.querySelectorAll('.osu-goal-card:not(.dragging)')].reduce((closest, child) => {
+            const box = child.getBoundingClientRect();
+            const offset = y - box.top - box.height / 2;
+            return (offset < 0 && offset > closest.offset) ? { offset: offset, element: child } : closest;
+        }, { offset: Number.NEGATIVE_INFINITY }).element;
+    }
 </script>
 </body>
 </html>
