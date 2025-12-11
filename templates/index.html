@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <title>Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Varela+Round&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=4">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=5">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script> 
 </head>
@@ -20,20 +20,17 @@
 
 <div class="navbar glass-panel">
     <div class="nav-brand">osu! tracker</div>
-    
     <div class="nav-tabs">
         <div class="nav-tab active" onclick="switchTab('dashboard')">Dashboard</div>
         <div class="nav-tab" onclick="switchTab('goals')">Goals</div>
         <div class="nav-tab" onclick="switchTab('feed')">Feed</div>
     </div>
-
     <div class="profile-section" onclick="toggleDropdown()">
         <div class="profile-text">
             <div class="username">{{ user.username }}</div>
             <div class="rank">#{{ rank }}</div>
         </div>
         <div class="profile-pic" style="background: url('{{ user.avatar_url }}') center/cover;"></div>
-        
         <div class="dropdown-menu" id="userDropdown">
             <a href="/settings" class="dropdown-item">Settings</a>
             <div class="dropdown-item text-danger" onclick="confirmLogout()">Logout</div>
@@ -42,46 +39,33 @@
 </div>
 
 <div class="main-container fade-in">
-    
     <div id="tab-dashboard" class="tab-content">
-        
         <div class="controls-area" style="display: flex; align-items: center; gap: 10px;">
             <button id="sessionBtn" class="btn-pill" onclick="toggleSession()">
                 <span class="btn-icon"><i class="fa-solid fa-bolt"></i></span> <span id="sessionBtnText">Start Session</span>
             </button>
-            
             <button class="btn-pill icon-only" onclick="forceRefresh()" title="Force Check Scores">
                 <i class="fa-solid fa-arrows-rotate" id="refreshIcon"></i>
             </button>
-
             <div id="sessionTimer" class="session-timer" style="opacity: 0;">00:00</div>
         </div>
 
         <div class="dashboard-grid">
-            
             <div class="panel-card glass-panel">
                 <div class="panel-header"><h3>Mastery Levels</h3></div>
-                
                 <div class="mastery-list">
-                    {% for mod, val in [('NM', stats[0]), ('HD', stats[1]), ('HR', stats[2]), ('DT', stats[3])] %}
-                    <div class="mastery-row">
-                        <span class="mod-badge mod-{{ mod|lower }}">{{ mod }}</span>
-                        <span class="star-val">{{ "%.2f"|format(val) }}</span>
-                        <span class="stars">
-                            {% for i in range(val|int) %}✦{% endfor %}
-                            <span class="stars-dim">{% for i in range(6 - val|int) %}✧{% endfor %}</span>
-                        </span>
-                    </div>
-                    {% endfor %}
+                    <div class="mastery-row"> <span class="mod-badge mod-nm">NM</span> <span class="star-val" id="stat-nm">{{ "%.2f"|format(stats[0]) }}</span> </div>
+                    <div class="mastery-row"> <span class="mod-badge mod-hd">HD</span> <span class="star-val" id="stat-hd">{{ "%.2f"|format(stats[1]) }}</span> </div>
+                    <div class="mastery-row"> <span class="mod-badge mod-hr">HR</span> <span class="star-val" id="stat-hr">{{ "%.2f"|format(stats[2]) }}</span> </div>
+                    <div class="mastery-row"> <span class="mod-badge mod-dt">DT</span> <span class="star-val" id="stat-dt">{{ "%.2f"|format(stats[3]) }}</span> </div>
                 </div>
-
                 <div class="star-list-container">
                     <div class="panel-sub-header" style="margin-top: 20px;">Accumulated FCs</div>
                     <div class="star-text-list">
                         {% for i in range(1, 9) %}
                         <div class="star-list-row">
                             <span class="star-label">{{ i }} Star FC:</span>
-                            <span class="star-count">{{ star_data.get(i, 0) }}</span>
+                            <span class="star-count" id="fc-{{ i }}">{{ star_data.get(i, 0) }}</span>
                         </div>
                         {% endfor %}
                     </div>
@@ -94,38 +78,27 @@
                     {% if goals %}
                         {% for goal in goals %}
                         <div class="osu-goal-card {% if goal.is_paused %}paused{% endif %} {% if goal.is_locked %}locked{% endif %}" 
-                             data-id="{{ goal.id }}" 
-                             draggable="{{ 'false' if goal.is_locked else 'true' }}">
+                             data-id="{{ goal.id }}" draggable="{{ 'false' if goal.is_locked else 'true' }}">
                             
                             <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px;">
                                 <div class="goal-badges">
                                     <span class="goal-type-badge">{{ goal.type }}</span>
-                                    {% if goal.is_locked %}<i class="fa-solid fa-lock" style="font-size: 10px; color: #66ccff; margin-left:5px;"></i>{% endif %}
-                                    {% if goal.is_paused %}<i class="fa-solid fa-pause" style="font-size: 10px; color: #888; margin-left:5px;"></i>{% endif %}
+                                    {% if goal.criteria.mod != 'Any' %}<span class="goal-type-badge" style="background:#555">{{ goal.criteria.mod }}</span>{% endif %}
                                 </div>
-                                
                                 <div class="goal-menu-container" style="position: relative;">
                                     <i class="fa-solid fa-ellipsis-vertical menu-dots" onclick="toggleGoalMenu('{{ goal.id }}')"></i>
                                     <div class="goal-dropdown" id="menu-{{ goal.id }}">
-                                        <div onclick="updateGoalStatus('{{ goal.id }}', '{{ 'unlock' if goal.is_locked else 'lock' }}')">
-                                            <i class="fa-solid {{ 'fa-lock-open' if goal.is_locked else 'fa-lock' }}"></i> 
-                                            {{ 'Unlock Position' if goal.is_locked else 'Lock Position' }}
-                                        </div>
-                                        <div onclick="updateGoalStatus('{{ goal.id }}', '{{ 'unpause' if goal.is_paused else 'pause' }}')">
-                                            <i class="fa-solid {{ 'fa-play' if goal.is_paused else 'fa-pause' }}"></i> 
-                                            {{ 'Resume' if goal.is_paused else 'Pause' }}
-                                        </div>
-                                        <div class="delete-opt" onclick="updateGoalStatus('{{ goal.id }}', 'delete')">
-                                            <i class="fa-solid fa-trash"></i> Delete
-                                        </div>
+                                        <div onclick="updateGoalStatus('{{ goal.id }}', '{{ 'unlock' if goal.is_locked else 'lock' }}')">{{ 'Unlock' if goal.is_locked else 'Lock' }}</div>
+                                        <div onclick="updateGoalStatus('{{ goal.id }}', '{{ 'unpause' if goal.is_paused else 'pause' }}')">{{ 'Resume' if goal.is_paused else 'Pause' }}</div>
+                                        <div class="delete-opt" onclick="updateGoalStatus('{{ goal.id }}', 'delete')">Delete</div>
                                     </div>
                                 </div>
                             </div>
 
                             <div class="goal-title">{{ goal.title }}</div>
-                            <div class="goal-progress-text">{{ goal.current_count }} / {{ goal.count_needed }}</div>
+                            <div class="goal-progress-text"><span id="prog-{{ goal.id }}">{{ goal.current_count }}</span> / {{ goal.count_needed }}</div>
                             <div class="goal-progress-bg">
-                                <div class="goal-progress-fill" style="width: {{ (goal.current_count / goal.count_needed) * 100 }}%"></div>
+                                <div class="goal-progress-fill" id="fill-{{ goal.id }}" style="width: {{ (goal.current_count / goal.count_needed) * 100 }}%"></div>
                             </div>
                         </div>
                         {% endfor %}
@@ -134,14 +107,12 @@
                     {% endif %}
                 </div>
             </div>
-
         </div>
     </div>
 
     <div id="tab-goals" class="tab-content" style="display: none;">
         <div class="panel-card glass-panel" style="max-width: 600px; margin: 0 auto;">
             <div class="panel-header"><h3>Create Custom Goal</h3></div>
-            
             <div class="goal-creator-form">
                 <div class="form-group">
                     <label>Goal Type</label>
@@ -151,7 +122,6 @@
                         <option value="ss">SS (Perfect)</option>
                     </select>
                 </div>
-
                 <div class="form-row" style="display: flex; gap: 15px;">
                     <div class="form-group" style="flex: 1;">
                         <label>Count</label>
@@ -162,20 +132,27 @@
                         <input type="number" id="goal-stars" value="5.0" step="0.1" class="input-dark" oninput="updateSentencePreview()">
                     </div>
                 </div>
-
+                <div class="form-group">
+                    <label>Required Mod</label>
+                    <select id="goal-mod" class="input-dark" onchange="updateSentencePreview()">
+                        <option value="Any">Any Mod</option>
+                        <option value="NM">NoMod</option>
+                        <option value="HD">Hidden (HD)</option>
+                        <option value="HR">HardRock (HR)</option>
+                        <option value="DT">DoubleTime (DT)</option>
+                    </select>
+                </div>
                 <div class="form-group">
                     <div class="checkbox-wrapper" style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
                         <input type="checkbox" id="use-acc" onchange="toggleAccInput()">
-                        <label for="use-acc" style="margin:0; cursor: pointer;">Require Accuracy (%)</label>
+                        <label for="use-acc">Require Accuracy (%)</label>
                     </div>
                     <input type="number" id="goal-acc" placeholder="98.5" min="0" max="100" step="0.5" class="input-dark" disabled oninput="updateSentencePreview()">
                 </div>
-
                 <div class="preview-box" style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px; border-left: 3px solid var(--osu-pink); margin: 20px 0;">
                     <label style="color: #888; font-size: 12px; display: block;">PREVIEW</label>
                     <div id="sentence-preview" style="font-size: 1.1em; font-weight: bold;">FC one 5.0★ map</div>
                 </div>
-
                 <button class="btn-create" onclick="submitGoal()">Create Goal +</button>
             </div>
         </div>
@@ -184,12 +161,11 @@
     <div id="tab-feed" class="tab-content" style="display: none;">
         <div class="panel-card glass-panel" style="max-width: 800px; margin: 0 auto;">
             <div class="panel-header"><h3>Session Feed</h3></div>
-            <div class="feed-content" style="padding: 20px; color: #888;">
-                Plays from your current session will appear here...
+            <div id="feed-container" class="feed-content" style="padding: 20px; display: flex; flex-direction: column; gap: 10px;">
+                <div style="color: #888; text-align: center;">New plays will appear here automatically...</div>
             </div>
         </div>
     </div>
-
 </div>
 
 <div id="warning-popup" class="modal hidden" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; justify-content:center; align-items:center;">
@@ -204,23 +180,17 @@
 </div>
 
 <script>
-    // --- V4 SESSION HANDLING (Persistent) ---
+    // --- V5 INSTANT UPDATE LOGIC ---
     let pollInterval;
     let secondsElapsed = 0;
     let timerInterval;
 
     document.addEventListener('DOMContentLoaded', () => {
-        // Check local storage for session state
-        const isSessionActive = localStorage.getItem('osu_session_active') === 'true';
-        if (isSessionActive) {
+        if (localStorage.getItem('osu_session_active') === 'true') {
             setSessionUI(true);
             startPolling();
         }
-        
-        // Init Sentence Preview
         if(document.getElementById('goal-type')) updateSentencePreview();
-
-        // Close menus on outside click
         window.onclick = function(event) {
             if (!event.target.matches('.menu-dots')) {
                 document.querySelectorAll('.goal-dropdown').forEach(d => d.style.display = 'none');
@@ -229,15 +199,13 @@
     });
 
     function toggleSession() {
-        const currentState = localStorage.getItem('osu_session_active') === 'true';
-        const newState = !currentState;
-        
+        const newState = !(localStorage.getItem('osu_session_active') === 'true');
         localStorage.setItem('osu_session_active', newState);
         setSessionUI(newState);
         
         if (newState) {
             startPolling();
-            forceRefresh(); // Check immediately
+            forceRefresh(); // Immediate Check
             showToast("Session Started", "Tracking your plays...");
         } else {
             stopPolling();
@@ -247,44 +215,31 @@
 
     function setSessionUI(active) {
         const btn = document.getElementById('sessionBtn');
-        const btnText = document.getElementById('sessionBtnText');
-        const timerDisplay = document.getElementById('sessionTimer');
-
+        const txt = document.getElementById('sessionBtnText');
+        const timer = document.getElementById('sessionTimer');
         if (active) {
-            btnText.innerText = "Stop Session";
-            btn.classList.add('btn-active'); // Make it red/active style
-            btn.querySelector('.btn-icon').innerHTML = '<i class="fa-solid fa-stop"></i>';
-            timerDisplay.style.opacity = '1';
-            
-            // Simple visual timer (resets on page load technically, but shows activity)
-            if(!timerInterval) {
-                timerInterval = setInterval(() => {
-                    secondsElapsed++;
-                    const mins = Math.floor(secondsElapsed / 60).toString().padStart(2, '0');
-                    const secs = (secondsElapsed % 60).toString().padStart(2, '0');
-                    timerDisplay.innerText = `${mins}:${secs}`;
-                }, 1000);
-            }
+            btn.classList.add('btn-active');
+            txt.innerText = "Stop Session";
+            timer.style.opacity = '1';
+            if(!timerInterval) timerInterval = setInterval(() => {
+                secondsElapsed++;
+                timer.innerText = new Date(secondsElapsed * 1000).toISOString().substr(14, 5);
+            }, 1000);
         } else {
-            btnText.innerText = "Start Session";
             btn.classList.remove('btn-active');
-            btn.querySelector('.btn-icon').innerHTML = '<i class="fa-solid fa-bolt"></i>';
-            timerDisplay.style.opacity = '0';
-            clearInterval(timerInterval);
-            timerInterval = null;
-            secondsElapsed = 0;
+            txt.innerText = "Start Session";
+            timer.style.opacity = '0';
+            clearInterval(timerInterval); timerInterval = null; secondsElapsed = 0;
         }
     }
 
     function startPolling() {
         if (pollInterval) clearInterval(pollInterval);
-        pollInterval = setInterval(forceRefresh, 30000); // Poll every 30s
+        pollInterval = setInterval(forceRefresh, 15000); // Poll every 15s
     }
+    function stopPolling() { if (pollInterval) clearInterval(pollInterval); }
 
-    function stopPolling() {
-        if (pollInterval) clearInterval(pollInterval);
-    }
-
+    // --- V5 CORE: AJAX REFRESH ---
     function forceRefresh() {
         const icon = document.getElementById('refreshIcon');
         if(icon) icon.classList.add('fa-spin');
@@ -292,159 +247,110 @@
         fetch('/check_scores', { method: 'POST' })
             .then(res => res.json())
             .then(data => {
-                if (data.updated) {
-                    showToast("Session Update", "New scores detected!");
-                    setTimeout(() => location.reload(), 1000);
+                if (data.status === 'success') {
+                    if (data.updated) showToast("Session Update", "New scores detected!");
+                    
+                    // 1. Update Stats
+                    ['nm','hd','hr','dt'].forEach((m, i) => {
+                        const el = document.getElementById('stat-'+m);
+                        if(el) el.innerText = data.stats[i].toFixed(2);
+                    });
+
+                    // 2. Update Goals
+                    data.goals.forEach(g => {
+                        const prog = document.getElementById('prog-'+g.id);
+                        const fill = document.getElementById('fill-'+g.id);
+                        if(prog) prog.innerText = g.current;
+                        if(fill) fill.style.width = (g.current / g.target * 100) + '%';
+                    });
+
+                    // 3. Update FCs
+                    for(let i=1; i<=8; i++) {
+                        const el = document.getElementById('fc-'+i);
+                        if(el) el.innerText = data.fc_counts[i] || 0;
+                    }
+
+                    // 4. Update Feed
+                    if(data.feed && data.feed.length > 0) {
+                        const feed = document.getElementById('feed-container');
+                        if(feed.children[0].innerText.includes('New plays')) feed.innerHTML = '';
+                        data.feed.forEach(item => {
+                            const d = document.createElement('div');
+                            d.className = 'feed-item fade-in';
+                            d.style.cssText = "background:rgba(255,255,255,0.05); padding:10px; border-left:3px solid #66ccff; border-radius:5px;";
+                            d.innerHTML = `<div style="font-weight:bold;">${item.title}</div>
+                                           <div style="font-size:12px; color:#aaa;">${item.stars}★ ${item.mods} - Rank ${item.rank} ${item.is_fc ? '(FC)' : ''}</div>`;
+                            feed.prepend(d);
+                        });
+                    }
                 }
             })
-            .catch(e => console.error(e))
-            .finally(() => {
-                if(icon) icon.classList.remove('fa-spin');
-            });
+            .finally(() => { if(icon) icon.classList.remove('fa-spin'); });
     }
 
-    // --- V4 GOAL MENUS ---
-    function toggleGoalMenu(goalId) {
-        const menu = document.getElementById(`menu-${goalId}`);
-        // Close others first
-        document.querySelectorAll('.goal-dropdown').forEach(d => d.style.display = 'none');
-        // Toggle current
-        menu.style.display = (menu.style.display === 'block') ? 'none' : 'block';
-    }
-
-    function updateGoalStatus(goalId, action) {
-        fetch('/update_goal_status', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ goal_id: goalId, action: action })
-        }).then(() => location.reload());
-    }
-
-    // --- V4 GOAL CREATOR (SENTENCE MAKER) ---
-    function toggleAccInput() {
-        const chk = document.getElementById('use-acc');
-        document.getElementById('goal-acc').disabled = !chk.checked;
-        updateSentencePreview();
-    }
-
+    // --- GOAL LOGIC ---
+    function toggleGoalMenu(id) { document.getElementById('menu-'+id).style.display = document.getElementById('menu-'+id).style.display === 'block' ? 'none' : 'block'; }
+    function updateGoalStatus(id, act) { fetch('/update_goal_status', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({goal_id:id, action:act})}).then(()=>location.reload()); }
+    
+    // --- GOAL CREATOR V5 ---
+    function toggleAccInput() { document.getElementById('goal-acc').disabled = !document.getElementById('use-acc').checked; updateSentencePreview(); }
     function updateSentencePreview() {
         const type = document.getElementById('goal-type').value;
-        const count = parseInt(document.getElementById('goal-count').value) || 0;
-        const stars = parseFloat(document.getElementById('goal-stars').value) || 0;
-        const useAcc = document.getElementById('use-acc').checked;
-        const acc = parseFloat(document.getElementById('goal-acc').value) || 0;
-
-        let text = "";
-        const numWords = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
-        const countStr = (count <= 10 && count >= 0) ? numWords[count] : count;
-        const mapStr = count === 1 ? "map" : "maps";
-
-        if (type === 'ss') {
-            text = `SS ${countStr} ${stars}★ ${mapStr}`;
-        } else if (type === 'fc') {
-            text = `FC ${countStr} ${stars}★ ${mapStr}`;
-            if (useAcc && acc > 0) text += ` with ${acc}%+ acc`;
-        } else if (type === 'pass') {
-            text = `Pass ${countStr} ${stars}★ ${mapStr}`;
-            if (useAcc && acc > 0) text += ` with ${acc}%+ acc`;
-        }
-
-        document.getElementById('sentence-preview').innerText = text;
-        return text;
-    }
-
-    function submitGoal() {
-        const payload = {
-            type: document.getElementById('goal-type').value,
-            count_needed: document.getElementById('goal-count').value,
-            target_stars: document.getElementById('goal-stars').value,
-            use_accuracy: document.getElementById('use-acc').checked,
-            accuracy_needed: document.getElementById('goal-acc').value,
-            title: document.getElementById('sentence-preview').innerText
-        };
-
-        fetch('/add_goal', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        }).then(() => {
-            switchTab('dashboard');
-            location.reload();
-        });
-    }
-
-    // --- UTILITIES (Tabs, Toast, Warning) ---
-    function switchTab(tab) {
-        document.querySelectorAll('.tab-content').forEach(e => e.style.display = 'none');
-        document.querySelectorAll('.nav-tab').forEach(e => e.classList.remove('active'));
-        document.getElementById('tab-'+tab).style.display = 'block';
+        const count = document.getElementById('goal-count').value;
+        const stars = document.getElementById('goal-stars').value;
+        const mod = document.getElementById('goal-mod').value;
         
-        // Find the tab button that was clicked (approximate)
-        const tabs = document.querySelectorAll('.nav-tab');
-        if(tab === 'dashboard') tabs[0].classList.add('active');
-        if(tab === 'goals') tabs[1].classList.add('active');
-        if(tab === 'feed') tabs[2].classList.add('active');
+        let txt = `${type.toUpperCase()} ${count} map${count>1?'s':''} (${stars}★)`;
+        if(mod !== 'Any') txt += ` with ${mod}`;
+        document.getElementById('sentence-preview').innerText = txt;
+    }
+    function submitGoal() {
+        fetch('/add_goal', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                type: document.getElementById('goal-type').value,
+                count_needed: document.getElementById('goal-count').value,
+                target_stars: document.getElementById('goal-stars').value,
+                required_mod: document.getElementById('goal-mod').value,
+                use_accuracy: document.getElementById('use-acc').checked,
+                accuracy_needed: document.getElementById('goal-acc').value,
+                title: document.getElementById('sentence-preview').innerText
+            })
+        }).then(() => { switchTab('dashboard'); location.reload(); });
     }
 
-    function toggleDropdown() {
-        document.getElementById('userDropdown').classList.toggle('show');
-    }
-
-    function showToast(title, msg) {
+    // --- HELPERS ---
+    function switchTab(t) { document.querySelectorAll('.tab-content').forEach(e => e.style.display = 'none'); document.getElementById('tab-'+t).style.display = 'block'; }
+    function toggleDropdown() { document.getElementById('userDropdown').classList.toggle('show'); }
+    function confirmLogout() { document.getElementById('warning-popup').style.display = 'flex'; }
+    function closeWarning() { document.getElementById('warning-popup').style.display = 'none'; }
+    function showToast(t, m) {
         const toast = document.getElementById('toast');
-        document.getElementById('toast-text').innerText = msg;
-        toast.querySelector('.toast-title').innerText = title;
+        document.getElementById('toast-text').innerText = m;
+        toast.querySelector('.toast-title').innerText = t;
         toast.classList.add('visible');
         setTimeout(() => toast.classList.remove('visible'), 4000);
     }
-    
-    function confirmLogout() {
-        document.getElementById('warning-popup').style.display = 'flex';
-    }
-    function closeWarning() {
-        document.getElementById('warning-popup').style.display = 'none';
-    }
 
-    // --- PRESERVED DRAG AND DROP (Updated for Lock check) ---
+    // --- DRAG & DROP (PRESERVED) ---
     const draggables = document.querySelectorAll('.osu-goal-card');
     const container = document.getElementById('goalListDashboard');
-
-    draggables.forEach(draggable => {
-        draggable.addEventListener('dragstart', (e) => {
-            if(draggable.getAttribute('draggable') === 'false') {
-                e.preventDefault();
-                return;
-            }
-            draggable.classList.add('dragging');
-        });
-
-        draggable.addEventListener('dragend', () => {
-            draggable.classList.remove('dragging');
-        });
+    draggables.forEach(d => {
+        d.addEventListener('dragstart', (e) => { if(d.getAttribute('draggable')==='false') {e.preventDefault(); return;} d.classList.add('dragging'); });
+        d.addEventListener('dragend', () => d.classList.remove('dragging'));
     });
-
     container.addEventListener('dragover', e => {
         e.preventDefault();
-        const afterElement = getDragAfterElement(container, e.clientY);
-        const draggable = document.querySelector('.dragging');
-        if(!draggable) return;
-        if (afterElement == null) {
-            container.appendChild(draggable);
-        } else {
-            container.insertBefore(draggable, afterElement);
-        }
+        const after = getDragAfterElement(container, e.clientY);
+        const drag = document.querySelector('.dragging');
+        if(!drag) return;
+        after == null ? container.appendChild(drag) : container.insertBefore(drag, after);
     });
-
     function getDragAfterElement(container, y) {
-        const draggableElements = [...container.querySelectorAll('.osu-goal-card:not(.dragging)')];
-        return draggableElements.reduce((closest, child) => {
+        return [...container.querySelectorAll('.osu-goal-card:not(.dragging)')].reduce((closest, child) => {
             const box = child.getBoundingClientRect();
             const offset = y - box.top - box.height / 2;
-            if (offset < 0 && offset > closest.offset) {
-                return { offset: offset, element: child };
-            } else {
-                return closest;
-            }
+            return (offset < 0 && offset > closest.offset) ? { offset: offset, element: child } : closest;
         }, { offset: Number.NEGATIVE_INFINITY }).element;
     }
 </script>

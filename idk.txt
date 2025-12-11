@@ -1,0 +1,1 @@
+postgresql://osu_tracker_db_user:tjVfJT2ne5364JgIA7cMAM5Jd6h9SxfW@dpg-d4svni9r0fns73egef4g-a/osu_tracker_db

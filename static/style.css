@@ -252,6 +252,19 @@ body {
 .login-logo { max-width: 120px; margin-bottom: 20px; transition: transform 0.3s ease; }
 .login-logo:hover { transform: scale(1.05) rotate(3deg); }
 
+/* V5: Feed Items */
+.feed-item {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+    padding: 10px;
+    border-left: 3px solid var(--osu-blue);
+    margin-bottom: 5px;
+    transition: background 0.2s;
+}
+.feed-item:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
 /* --- RESPONSIVE ADJUSTMENTS --- */
 @media (max-width: 1400px) {
     .main-container { max-width: 1000px; }
