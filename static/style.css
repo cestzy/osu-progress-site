@@ -228,7 +228,7 @@ body {
     font-family: inherit; 
     font-size: 13px;
     
-    /* V6: Fixes the light gray background on selects/inputs */
+    /* V6: Remove ugly browser default grey appearance for selects/inputs */
     -webkit-appearance: none; 
     -moz-appearance: none;
     appearance: none;
