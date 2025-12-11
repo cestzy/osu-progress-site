@@ -439,7 +439,7 @@ def process_session_logic():
             stars = beatmap['difficulty_rating']
             acc = score['accuracy']
             raw_mods = score['mods']
-            is_strict_fc = score['perfect'] # V6: Strict FC Check
+            is_strict_fc = (score['max_combo'] == map_max_combo and map_max_combo > 0)
 
             mod_group = "NM"
             if "DT" in raw_mods or "NC" in raw_mods: mod_group = "DT"
@@ -479,7 +479,7 @@ def process_session_logic():
                 elif req_type == 'fc':
                     success = is_strict_fc # V6: Use strict check
                 elif req_type == 'ss':
-                    if score['rank'] in ['X', 'XH'] or (is_strict_fc and acc == 1.0):
+                    if score['rank'] in ['X', 'XH']:
                         success = True
                 elif req_type == 'count':
                      success = True
