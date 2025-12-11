@@ -233,6 +233,8 @@
                 document.querySelectorAll('.goal-dropdown').forEach(d => d.style.display = 'none');
             }
         }
+        // Ensure initial star state is correct
+        toggleStarInput();
     });
 
     function toggleSession() {
@@ -297,7 +299,7 @@
                         const prog = document.getElementById('prog-'+g.id);
                         const fill = document.getElementById('fill-'+g.id);
                         if(prog) prog.innerText = g.current;
-                        if(f) fill.style.width = (g.current / g.target * 100) + '%';
+                        if(fill) fill.style.width = (g.current / g.target * 100) + '%';
                     });
 
                     // 3. Update FCs
@@ -353,15 +355,31 @@
         const count = document.getElementById('goal-count').value || 1;
         const stars = document.getElementById('goal-stars').value || 0;
         const mod = document.getElementById('goal-mod').value;
+        const useStars = document.getElementById('use-stars').checked;
+        const useAcc = document.getElementById('use-acc').checked;
+        const acc = document.getElementById('goal-acc').value || 0;
         
-        let txt = `${type.toUpperCase()} ${count} map${count>1?'s':''}`;
-        if (document.getElementById('use-stars').checked) {
-            txt += ` (${stars}★)`;
-        } else {
-            txt += ` (Any Star)`;
+        let textParts = [];
+
+        // 1. Base Phrase
+        textParts.push(`${type.toUpperCase()} ${count} map${count>1?'s':''}`);
+
+        // 2. Mod Requirement
+        if (mod !== 'Any') {
+            textParts.push(`with ${mod}`);
         }
-        if(mod !== 'Any') txt += ` with ${mod}`;
-        document.getElementById('sentence-preview').innerText = txt;
+
+        // 3. Star Requirement (Clearer Grammar)
+        if (useStars && parseFloat(stars) > 0) {
+            textParts.push(`on maps ${stars}★ or higher`); 
+        }
+
+        // 4. Accuracy Requirement (Clearer Grammar)
+        if (useAcc && parseFloat(acc) > 0) {
+            textParts.push(`with at least ${acc}% accuracy`);
+        }
+
+        document.getElementById('sentence-preview').innerText = textParts.join(', ');
     }
     function submitGoal() {
         fetch('/add_goal', {
@@ -423,5 +441,6 @@
         }, { offset: Number.NEGATIVE_INFINITY }).element;
     }
 </script>
+
 </body>
 </html>
