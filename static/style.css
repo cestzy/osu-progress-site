@@ -8,6 +8,7 @@
     --osu-gold: #ffcc22;
     --text-main: #ffffff;
     --text-dim: #bbbbbb;
+    --input-bg: rgba(0, 0, 0, 0.5); /* Dark background for inputs */
 }
 
 body {
@@ -17,7 +18,7 @@ body {
     font-family: 'Varela Round', sans-serif;
     margin: 0;
     min-height: 100vh;
-    font-size: 14px; /* Reduced base font size slightly */
+    font-size: 14px;
 }
 
 /* --- UTILITIES --- */
@@ -26,7 +27,7 @@ body {
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--glass-border);
-    border-radius: 12px; /* Slightly tighter corners */
+    border-radius: 12px;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
 }
 
@@ -38,13 +39,13 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 10px 20px; /* Reduced Padding */
+    padding: 10px 20px;
     margin: 15px auto;
-    max-width: 1150px; /* Tighter width for 1080p */
+    max-width: 1150px;
 }
 
 .nav-brand {
-    font-size: 20px; /* Smaller Logo */
+    font-size: 20px;
     font-weight: bold;
     color: var(--osu-pink);
     text-shadow: 0 0 10px rgba(255, 102, 170, 0.5);
@@ -59,72 +60,40 @@ body {
 }
 
 .nav-tab {
-    padding: 6px 16px; /* Smaller Tabs */
+    padding: 6px 16px;
     border-radius: 16px;
     cursor: pointer;
     transition: 0.2s;
     color: var(--text-dim);
     font-size: 13px;
 }
-.nav-tab.active, .nav-tab:hover { background: var(--osu-pink); color: white; }
+.nav-tab.active { /* FIX: Selected tab color */
+    background: var(--osu-pink);
+    color: white !important;
+}
+.nav-tab:hover { background: rgba(255, 102, 170, 0.6); color: white; }
+
 
 /* PROFILE */
-.profile-section {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    cursor: pointer;
-    position: relative;
-    padding: 4px 10px;
-    border-radius: 50px;
-    transition: 0.2s;
-}
-.profile-section:hover { background: rgba(255,255,255,0.05); }
-
 .profile-text { text-align: right; line-height: 1.1; }
 .username { font-size: 14px; font-weight: bold; color: white; }
-.rank { 
-    font-size: 12px; 
-    color: var(--osu-gold);
-    font-weight: bold;
-    letter-spacing: 0.5px;
-}
-
-.profile-pic {
-    width: 36px; /* Smaller Avatar */
-    height: 36px;
-    border-radius: 50%;
-    border: 2px solid var(--osu-pink);
-    background-size: cover;
-    background-position: center;
-}
-
-/* DROPDOWN */
-.dropdown-menu {
-    position: absolute; top: 50px; right: 0;
-    background: #1a1a1a; border: 1px solid #333;
-    border-radius: 8px; width: 140px; display: none; z-index: 100;
-}
-.dropdown-menu.show { display: block; }
-.dropdown-item { padding: 10px 15px; display: block; color: #ddd; text-decoration: none; font-size: 13px; cursor: pointer; }
-.dropdown-item:hover { background: #333; }
-.text-danger { color: #ff6666; }
+.rank { font-size: 12px; color: var(--osu-gold); font-weight: bold; letter-spacing: 0.5px;}
 
 /* --- MAIN LAYOUT --- */
 .main-container {
-    max-width: 1150px; /* Optimized for 1080p */
+    max-width: 1150px;
     margin: 0 auto;
     padding: 0 20px 20px 20px;
 }
 
 .dashboard-grid {
     display: grid;
-    grid-template-columns: 280px 1fr; /* Narrower sidebar */
+    grid-template-columns: 280px 1fr;
     gap: 20px;
 }
 
 .panel-card {
-    padding: 20px; /* Reduced padding inside cards */
+    padding: 20px;
     margin-bottom: 20px;
 }
 
@@ -133,7 +102,7 @@ body {
     border-bottom: 2px solid var(--osu-pink);
     padding-bottom: 8px;
     display: inline-block;
-    font-size: 16px; /* Smaller Headers */
+    font-size: 16px;
 }
 
 /* --- MASTERY & STATS --- */
@@ -142,29 +111,13 @@ body {
     margin-bottom: 8px; padding: 6px 10px;
     background: rgba(255,255,255,0.03); border-radius: 6px;
 }
-.mod-badge {
-    padding: 3px 6px; border-radius: 4px;
-    font-weight: bold; font-size: 10px; width: 24px; text-align: center;
-}
-.mod-nm { background: #555; }
-.mod-hd { background: #ccaa00; color: black; }
-.mod-hr { background: #ff4444; }
-.mod-dt { background: #8844ff; }
-
-.star-val { font-family: monospace; color: var(--osu-blue); font-size: 13px; }
 .stars { color: var(--osu-pink); letter-spacing: 1px; font-size: 11px; }
 .stars-dim { color: #444; }
-
-.star-list-row {
-    display: flex; justify-content: space-between;
-    padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 13px;
-}
-.star-count { color: var(--osu-pink); font-weight: bold; }
 
 /* --- GOALS GRID --- */
 .goals-list-container {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); /* Keep cards readable width */
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 15px;
 }
 
@@ -173,86 +126,39 @@ body {
     border: 1px solid #444;
     border-left: 4px solid var(--osu-pink);
     border-radius: 8px;
-    padding: 12px 15px; /* Compact padding */
+    padding: 12px 15px;
     position: relative;
     cursor: grab;
     transition: 0.2s;
 }
-.osu-goal-card:hover { transform: translateY(-2px); background: rgba(40,40,45,0.9); }
-.osu-goal-card.paused { opacity: 0.6; border-left-color: #888; filter: grayscale(0.8); }
-.osu-goal-card.locked { border-left-color: var(--osu-blue); cursor: default; }
 
-.goal-type-badge {
-    background: #333; font-size: 9px; padding: 2px 6px;
-    border-radius: 3px; color: #aaa; font-weight: bold; text-transform: uppercase;
-}
-
-.goal-title { font-size: 14px; font-weight: bold; margin: 8px 0; line-height: 1.3; }
-.goal-progress-text { font-size: 11px; color: #aaa; text-align: right; margin-bottom: 4px; }
-.goal-progress-bg { background: rgba(0,0,0,0.5); height: 5px; border-radius: 3px; overflow: hidden; }
-.goal-progress-fill { height: 100%; background: var(--osu-pink); transition: width 0.5s ease; }
-
-/* Menu Dots */
-.menu-dots { color: #666; cursor: pointer; padding: 5px; transition: 0.2s; }
-.menu-dots:hover { color: white; }
-.goal-dropdown {
-    display: none; position: absolute; right: 0; top: 25px;
-    background: #1e1e1e; border: 1px solid #444; border-radius: 6px;
-    width: 120px; z-index: 50; box-shadow: 0 5px 15px rgba(0,0,0,0.5);
-}
-.goal-dropdown div { padding: 8px 12px; font-size: 12px; cursor: pointer; border-bottom: 1px solid #333; display: flex; align-items: center; gap: 8px; }
-.delete-opt { color: #ff6666; }
-
-/* --- CONTROLS --- */
-.controls-area { margin-bottom: 15px; }
-.btn-pill {
-    background: var(--osu-pink); border: none; color: white;
-    padding: 8px 18px; border-radius: 50px; font-size: 13px; font-weight: bold;
-    cursor: pointer; display: flex; align-items: center; gap: 8px;
-    transition: 0.2s; font-family: inherit; text-decoration: none;
-}
-.btn-pill:hover { transform: scale(1.05); }
-.btn-active { background: #ff4444; }
-.icon-only { padding: 8px; width: 34px; height: 34px; justify-content: center; background: #444; }
-.session-timer { font-family: monospace; font-size: 16px; color: var(--osu-blue); text-shadow: 0 0 5px rgba(102,204,255,0.4); }
-
-/* --- FORMS --- */
+/* --- FORMS (V6 Fixes for blend) --- */
 .goal-creator-form { display: flex; flex-direction: column; gap: 10px; }
 .input-dark {
-    width: 100%; background: rgba(0,0,0,0.3); border: 1px solid #555;
-    color: white; padding: 8px 12px; border-radius: 6px; box-sizing: border-box; font-family: inherit; font-size: 13px;
+    width: 100%; 
+    background: var(--input-bg); /* Use dark background */
+    border: 1px solid #555;
+    color: white; 
+    padding: 8px 12px; 
+    border-radius: 6px; 
+    box-sizing: border-box; 
+    font-family: inherit; 
+    font-size: 13px;
+    -webkit-appearance: none; /* Remove browser default styles for select */
+    -moz-appearance: none;
+    appearance: none;
 }
+.input-dark:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
 .btn-create {
     background: var(--osu-blue); color: #111; font-weight: bold; border: none;
     padding: 10px; border-radius: 6px; cursor: pointer; margin-top: 5px; font-size: 13px;
 }
 
-/* --- TOAST --- */
-.toast-notification {
-    position: fixed; bottom: 30px; right: 30px;
-    background: #222; border: 1px solid #444; border-radius: 8px;
-    display: flex; overflow: hidden; transform: translateY(100px);
-    opacity: 0; transition: 0.3s; z-index: 1000;
-}
-.toast-notification.visible { transform: translateY(0); opacity: 1; }
-.toast-side-accent { width: 5px; background: var(--osu-pink); }
-.toast-content { padding: 10px 15px; }
-.toast-title { font-weight: bold; font-size: 13px; margin-bottom: 2px; color: var(--osu-pink); }
-.toast-body { font-size: 12px; color: #ccc; }
-
-/* --- LOGIN PAGE STYLES --- */
-.login-body {
-    background-size: cover; background-position: center; background-repeat: no-repeat;
-    display: flex; justify-content: center; align-items: center; height: 100vh;
-}
-.login-card {
-    text-align: center; padding: 30px; width: 100%; max-width: 350px;
-    background: rgba(20, 20, 25, 0.9);
-}
-.login-logo { max-width: 120px; margin-bottom: 20px; transition: transform 0.3s ease; }
-.login-logo:hover { transform: scale(1.05) rotate(3deg); }
-
-/* V5: Feed Items */
+/* --- V5 Feed Items --- */
 .feed-item {
     background: rgba(255, 255, 255, 0.05);
     border-radius: 6px;
@@ -275,5 +181,4 @@ body {
 @media (max-width: 768px) {
     .dashboard-grid { grid-template-columns: 1fr; }
     .navbar { flex-direction: column; gap: 10px; }
-    .goals-list-container { grid-template-columns: 1fr; }
 }
