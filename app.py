@@ -153,18 +153,41 @@ def home():
         conn = get_db_connection()
         cur = conn.cursor()
 
-        # 1. Fetch User Info
-        cur.execute("SELECT username, global_rank FROM osu_users WHERE user_id = %s", (session['user_id'],))
-        user_row = cur.fetchone()
+        # 1. Fetch User Info and refresh rank from API
+        token = session.get('token')
+        if token:
+            try:
+                headers = {'Authorization': f'Bearer {token}'}
+                user_response = requests.get('https://osu.ppy.sh/api/v2/me/osu', headers=headers)
+                if user_response.status_code == 200:
+                    user_data = user_response.json()
+                    current_rank = user_data['statistics'].get('global_rank') or 0
+                    # Update rank in database
+                    cur.execute("UPDATE osu_users SET global_rank = %s WHERE user_id = %s", (current_rank, session['user_id']))
+                    conn.commit()
+                else:
+                    # Fallback to database rank
+                    cur.execute("SELECT username, global_rank FROM osu_users WHERE user_id = %s", (session['user_id'],))
+                    user_row = cur.fetchone()
+                    current_rank = user_row[1] if user_row and user_row[1] else 0
+            except:
+                # Fallback to database rank
+                cur.execute("SELECT username, global_rank FROM osu_users WHERE user_id = %s", (session['user_id'],))
+                user_row = cur.fetchone()
+                current_rank = user_row[1] if user_row and user_row[1] else 0
+        else:
+            cur.execute("SELECT username, global_rank FROM osu_users WHERE user_id = %s", (session['user_id'],))
+            user_row = cur.fetchone()
+            current_rank = user_row[1] if user_row and user_row[1] else 0
 
         # SAFETY CHECK: If user is in session (cookies) but not in DB, force logout
+        cur.execute("SELECT username FROM osu_users WHERE user_id = %s", (session['user_id'],))
+        user_row = cur.fetchone()
         if not user_row:
             cur.close()
             conn.close()
             session.clear()
             return redirect('/')
-
-        current_rank = user_row[1] if user_row and user_row[1] else 0
 
         # 2. Fetch Mastery Stats
         cur.execute("SELECT nm_rating, hd_rating, hr_rating, dt_rating, fl_rating FROM user_mastery WHERE user_id = %s", (session['user_id'],))
@@ -567,7 +590,13 @@ def process_session_logic():
             raw_mods = score['mods']
             
             # Convert mods array to string combination (e.g., ["HD", "DT"] -> "HDDT")
-            mod_combination = ''.join(raw_mods) if isinstance(raw_mods, list) else (raw_mods if raw_mods else 'NM')
+            # Sort mods alphabetically for consistent matching (HDDT, HRHD, etc.)
+            if isinstance(raw_mods, list):
+                # Filter out empty strings and sort
+                mod_list = sorted([m for m in raw_mods if m])
+                mod_combination = ''.join(mod_list) if mod_list else 'NM'
+            else:
+                mod_combination = raw_mods if raw_mods else 'NM'
             if not mod_combination or mod_combination == '[]': mod_combination = 'NM'
             
             # Get map_max_combo first (needed for strict FC check)

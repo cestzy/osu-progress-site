@@ -35,7 +35,7 @@
         </div>
         <div class="profile-pic" style="background: url('{{ user.avatar_url }}') center/cover;"></div>
         
-        <div class="dropdown-menu" id="userDropdown">
+        <div class="dropdown-menu" id="userDropdown" style="z-index: 10000; position: absolute;">
             <a href="/settings" class="dropdown-item">Settings</a>
             <div class="dropdown-item text-danger" onclick="confirmLogout()">Logout</div>
         </div>
@@ -162,7 +162,7 @@
                     </select>
                 </div>
 
-                <div class="form-row" style="display: flex; gap: 15px;">
+                <div class="form-row" style="display: flex; gap: 15px; align-items: flex-end;">
                     <div class="form-group" style="flex: 1;">
                         <label>Count <span style="color: #ff4444;">*</span></label>
                         <input type="number" id="goal-count" value="1" min="1" class="input-dark" oninput="updateSentencePreview()" required>
@@ -191,27 +191,27 @@
                     <label>Mod Combination</label>
                     <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px;">
                         <div class="checkbox-wrapper" style="display: flex; align-items: center; gap: 5px;">
-                            <input type="checkbox" id="mod-hd" value="HD" onchange="updateModCombination()">
+                            <input type="checkbox" id="mod-hd" value="HD" onchange="updateModCombination(event)">
                             <label for="mod-hd">HD</label>
                         </div>
                         <div class="checkbox-wrapper" style="display: flex; align-items: center; gap: 5px;">
-                            <input type="checkbox" id="mod-hr" value="HR" onchange="updateModCombination()">
+                            <input type="checkbox" id="mod-hr" value="HR" onchange="updateModCombination(event)">
                             <label for="mod-hr">HR</label>
                         </div>
                         <div class="checkbox-wrapper" style="display: flex; align-items: center; gap: 5px;">
-                            <input type="checkbox" id="mod-dt" value="DT" onchange="updateModCombination()">
+                            <input type="checkbox" id="mod-dt" value="DT" onchange="updateModCombination(event)">
                             <label for="mod-dt">DT</label>
                         </div>
                         <div class="checkbox-wrapper" style="display: flex; align-items: center; gap: 5px;">
-                            <input type="checkbox" id="mod-nc" value="NC" onchange="updateModCombination()">
+                            <input type="checkbox" id="mod-nc" value="NC" onchange="updateModCombination(event)">
                             <label for="mod-nc">NC</label>
                         </div>
                         <div class="checkbox-wrapper" style="display: flex; align-items: center; gap: 5px;">
-                            <input type="checkbox" id="mod-fl" value="FL" onchange="updateModCombination()">
+                            <input type="checkbox" id="mod-fl" value="FL" onchange="updateModCombination(event)">
                             <label for="mod-fl">FL</label>
                         </div>
                         <div class="checkbox-wrapper" style="display: flex; align-items: center; gap: 5px;">
-                            <input type="checkbox" id="mod-ez" value="EZ" onchange="updateModCombination()">
+                            <input type="checkbox" id="mod-ez" value="EZ" onchange="updateModCombination(event)">
                             <label for="mod-ez">EZ</label>
                         </div>
                     </div>
@@ -427,7 +427,9 @@
         toggleStarInput();
         toggleLengthInput();
         toggleComboInput();
-        updateModCombination();  // Initialize mod combination
+        if(document.getElementById('goal-mod-combo')) {
+            updateModCombination();  // Initialize mod combination
+        }
         
         // Initialize goal pagination
         updateGoalPagination();
@@ -514,7 +516,12 @@
                 }
             })
             .catch(error => { console.error("Error fetching scores:", error); })
-            .finally(() => { if(icon) icon.classList.remove('fa-spin'); });
+            .finally(() => { 
+                // Remove spin after a brief delay to show rotation
+                setTimeout(() => {
+                    if(icon) icon.classList.remove('fa-spin');
+                }, 500);
+            });
     }
     
     function updateFeed(newItems, persistentItems) {
@@ -524,7 +531,7 @@
         // Clear placeholder
         if(feed.children[0] && feed.children[0].innerText.includes('New plays')) feed.innerHTML = '';
         
-        // Add new items
+        // Add new items to top
         newItems.forEach(item => {
             const d = document.createElement('div');
             d.className = 'feed-item fade-in';
@@ -535,8 +542,22 @@
             feed.prepend(d);
         });
         
-        // If no new items but we have persistent feed, show that
-        if(newItems.length === 0 && persistentItems.length > 0 && feed.children.length === 0) {
+        // Load persistent feed (latest to oldest, top to bottom)
+        // Only load if feed is empty or we're on feed tab
+        const feedTab = document.getElementById('tab-feed');
+        if(feedTab && feedTab.style.display !== 'none') {
+            // Clear and reload all persistent items
+            feed.innerHTML = '';
+            persistentItems.forEach(item => {
+                const d = document.createElement('div');
+                d.className = 'feed-item';
+                d.style.cssText = "background:rgba(255,255,255,0.05); padding:10px; border-left:3px solid #888; border-radius:5px;";
+                d.innerHTML = `<div style="font-weight:bold;">${item.title}</div>
+                               <div style="font-size:12px; color:#aaa;">${item.stars}★ ${item.mod_combination} ${item.is_fc ? '(FC)' : ''}</div>`;
+                feed.appendChild(d);
+            });
+        } else if(newItems.length === 0 && persistentItems.length > 0 && feed.children.length === 0) {
+            // If not on feed tab but feed is empty, show persistent items
             persistentItems.forEach(item => {
                 const d = document.createElement('div');
                 d.className = 'feed-item';
@@ -578,6 +599,69 @@
     
     function toggleComboInput() {
         document.getElementById('goal-combo').disabled = !document.getElementById('use-combo').checked;
+        updateSentencePreview();
+    }
+    
+    function updateModCombination(event) {
+        const mods = ['HD', 'HR', 'DT', 'NC', 'FL', 'EZ'];
+        const selectedMods = mods.filter(mod => {
+            const checkbox = document.getElementById(`mod-${mod.toLowerCase()}`);
+            return checkbox && checkbox.checked;
+        });
+        
+        // Check for opposing mods
+        const hasEZ = selectedMods.includes('EZ');
+        const hasHR = selectedMods.includes('HR');
+        const hasDT = selectedMods.includes('DT');
+        const hasNC = selectedMods.includes('NC');
+        
+        // EZ and HR are opposing
+        if (hasEZ && hasHR && event) {
+            // Uncheck the one that was just clicked
+            const clickedMod = event.target.value;
+            if (clickedMod === 'EZ') {
+                document.getElementById('mod-hr').checked = false;
+            } else {
+                document.getElementById('mod-ez').checked = false;
+            }
+            // Recalculate without event to avoid infinite loop
+            const mods2 = ['HD', 'HR', 'DT', 'NC', 'FL', 'EZ'];
+            const selectedMods2 = mods2.filter(mod => {
+                const checkbox = document.getElementById(`mod-${mod.toLowerCase()}`);
+                return checkbox && checkbox.checked;
+            });
+            // Sort mods alphabetically for consistent matching
+            const modCombo = selectedMods2.length > 0 ? selectedMods2.sort().join('') : 'NM';
+            document.getElementById('goal-mod-combo').value = modCombo;
+            updateSentencePreview();
+            return;
+        }
+        
+        // DT and NC are opposing (NC includes DT)
+        if (hasDT && hasNC && event) {
+            const clickedMod = event.target.value;
+            if (clickedMod === 'DT') {
+                document.getElementById('mod-nc').checked = false;
+            } else {
+                document.getElementById('mod-dt').checked = false;
+            }
+            // Recalculate without event to avoid infinite loop
+            const mods2 = ['HD', 'HR', 'DT', 'NC', 'FL', 'EZ'];
+            const selectedMods2 = mods2.filter(mod => {
+                const checkbox = document.getElementById(`mod-${mod.toLowerCase()}`);
+                return checkbox && checkbox.checked;
+            });
+            // Sort mods alphabetically for consistent matching
+            const modCombo = selectedMods2.length > 0 ? selectedMods2.sort().join('') : 'NM';
+            document.getElementById('goal-mod-combo').value = modCombo;
+            updateSentencePreview();
+            return;
+        }
+        
+        // If no mods selected, default to NM
+        // Sort mods alphabetically for consistent matching (matches backend sorting)
+        const modCombo = selectedMods.length > 0 ? selectedMods.sort().join('') : 'NM';
+        document.getElementById('goal-mod-combo').value = modCombo;
         updateSentencePreview();
     }
     
@@ -642,8 +726,11 @@
         }
 
         // Mod combination (always show if not NM, or if NM and not a specific beatmap)
-        if(modCombo !== 'NM' || !beatmapId) {
+        if(modCombo && modCombo !== 'NM') {
             textParts.push(`with ${modCombo}`);
+        } else if(!beatmapId && modCombo === 'NM') {
+            // Only show NM if not a specific beatmap goal
+            textParts.push(`with NM`);
         }
 
         // Star requirement
@@ -732,13 +819,29 @@
     function switchTab(t) {
         document.querySelectorAll('.tab-content').forEach(e => e.style.display = 'none');
         document.querySelectorAll('.nav-tab').forEach(e => e.classList.remove('active'));
+        
+        // Map tab names to exact matches
+        const tabMap = {
+            'dashboard': 'Dashboard',
+            'goals': 'Goals',
+            'completed': 'Completed Goals',
+            'feed': 'Feed'
+        };
+        
         const tabs = document.querySelectorAll('.nav-tabs .nav-tab');
         tabs.forEach(tab => {
-            if (tab.innerText.toLowerCase().includes(t)) {
+            if (tab.innerText.trim() === tabMap[t]) {
                 tab.classList.add('active');
             }
         });
         document.getElementById('tab-'+t).style.display = 'block';
+        
+        // If switching to feed tab, load persistent feed
+        if(t === 'feed') {
+            {% if persistent_feed %}
+            updateFeed([], {{ persistent_feed|tojson }});
+            {% endif %}
+        }
     }
     function toggleDropdown() { document.getElementById('userDropdown').classList.toggle('show'); }
     function confirmLogout() { document.getElementById('warning-popup').style.display='flex'; }
