@@ -625,9 +625,11 @@ def process_session_logic():
                 mod_combination = raw_mods if raw_mods else 'NM'
             if not mod_combination or mod_combination == '[]': mod_combination = 'NM'
             
-            # Get map_max_combo first (needed for strict FC check)
+            # Get map_max_combo from beatmap (do NOT fallback to score max_combo for FC calculation)
+            # If beatmap max_combo is not available, we can't reliably determine FC
             map_max_combo = beatmap.get('max_combo', 0)
-            if map_max_combo == 0: map_max_combo = score['max_combo']
+            # NOTE: We intentionally do NOT fallback to score['max_combo'] because that would
+            # incorrectly mark all no-miss scores as FC when map_max_combo is unavailable
             
             # Get map length and beatmap_id
             map_length = beatmap.get('total_length', 0)  # in seconds
@@ -645,6 +647,7 @@ def process_session_logic():
             # PFC = max_combo exactly matches map_max_combo AND no misses
             # Can be S rank or SS rank, can have 100s/50s (missing slider ends)
             # The key is: combo matches exactly, meaning no slider breaks occurred
+            # Requires valid map_max_combo from beatmap
             is_pfc = (miss_count == 0 and 
                      map_max_combo > 0 and 
                      score['max_combo'] == map_max_combo)
@@ -657,17 +660,21 @@ def process_session_logic():
             #
             # The challenge: Distinguishing dropped slider ends from slider breaks
             # - Dropped slider ends: combo is close to map max (e.g., 370/371, 1130/1159) = FC
-            # - Slider break: combo is significantly lower = NOT FC
+            # - Slider break: combo is significantly lower (e.g., 183/442) = NOT FC
             #
             # Algorithm:
             # 1. F rank or has misses = NOT FC
-            # 2. If combo matches map max exactly = PFC (and FC)
-            # 3. If combo is close to map max (within threshold) = FC (dropped slider ends)
-            # 4. If combo is significantly lower = NOT FC (slider break)
+            # 2. SS rank (X/XH) with no misses = Always FC (even if map_max_combo unavailable)
+            # 3. If map_max_combo is available:
+            #    - If combo matches map max exactly = PFC (and FC)
+            #    - If combo is close to map max (within threshold) = FC (dropped slider ends)
+            #    - If combo is significantly lower = NOT FC (slider break)
+            # 4. If map_max_combo unavailable = Only SS rank can be FC (conservative)
             #
             # Threshold: Use percentage-based approach with reasonable limits
             # Examples: 370/371 (0.27% off) = FC, 1130/1159 (2.5% off) = FC
             # Use 3% or 30 combo, whichever is smaller, to account for larger maps
+            # But be strict: 183/442 (58% off) = NOT FC (slider break)
             
             is_fc = False
             if score_rank == 'F':
@@ -676,15 +683,23 @@ def process_session_logic():
             elif miss_count > 0:
                 # Has misses = NOT FC
                 is_fc = False
+            elif score_rank in ['X', 'XH']:
+                # SS rank with no misses = Always FC (even if map_max_combo unavailable)
+                is_fc = True
             elif map_max_combo > 0:
+                # We have valid map_max_combo, can calculate FC properly
                 combo_diff = map_max_combo - score['max_combo']
                 
                 if combo_diff == 0:
                     # Combo matches exactly = PFC (and FC)
                     is_fc = True
+                elif combo_diff < 0:
+                    # Player combo exceeds map max (shouldn't happen, but be safe)
+                    is_fc = False
                 else:
                     # Calculate threshold: 3% of map max combo, or 30 combo, whichever is smaller
                     # This handles cases like 370/371 (1 off) and 1130/1159 (29 off)
+                    # But rejects cases like 183/442 (259 off, 58% difference)
                     percentage_threshold = int(map_max_combo * 0.03)
                     absolute_threshold = 30
                     threshold = min(percentage_threshold, absolute_threshold)
@@ -696,7 +711,7 @@ def process_session_logic():
                         # Combo is significantly lower (likely slider break) = NOT FC
                         is_fc = False
             else:
-                # Can't determine (map_max_combo is 0 or invalid)
+                # map_max_combo unavailable - be conservative, only SS rank is FC
                 is_fc = False
 
             mod_group = "NM"
