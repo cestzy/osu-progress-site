@@ -73,13 +73,38 @@ def init_db():
                 osu_score_id BIGINT, 
                 beatmap_name TEXT, 
                 mods TEXT, 
+                mod_combination TEXT,
                 stars FLOAT, 
                 effective_stars FLOAT, 
                 accuracy FLOAT, 
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                is_fc BOOLEAN DEFAULT FALSE
+                is_fc BOOLEAN DEFAULT FALSE,
+                beatmap_id BIGINT,
+                map_length INT,
+                max_combo INT
             );
         """)
+        
+        # Table to track which scores contributed to which goals
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS goal_contributions (
+                id SERIAL PRIMARY KEY,
+                goal_id INT,
+                score_history_id INT,
+                user_id BIGINT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (goal_id) REFERENCES user_active_goals(id) ON DELETE CASCADE
+            );
+        """)
+        
+        # Add columns if they don't exist (for existing databases)
+        try:
+            cur.execute("ALTER TABLE score_history ADD COLUMN IF NOT EXISTS mod_combination TEXT;")
+            cur.execute("ALTER TABLE score_history ADD COLUMN IF NOT EXISTS beatmap_id BIGINT;")
+            cur.execute("ALTER TABLE score_history ADD COLUMN IF NOT EXISTS map_length INT;")
+            cur.execute("ALTER TABLE score_history ADD COLUMN IF NOT EXISTS max_combo INT;")
+        except:
+            pass  # Columns might already exist
         
         conn.commit()
         cur.close()
@@ -181,6 +206,24 @@ def home():
         hist_rows = cur.fetchall()
         star_data = {int(r[0]): r[1] for r in hist_rows}
 
+        # 5. Fetch persistent feed (last 100 scores)
+        cur.execute("""
+            SELECT beatmap_name, mod_combination, stars, is_fc, timestamp
+            FROM score_history 
+            WHERE user_id = %s 
+            ORDER BY timestamp DESC 
+            LIMIT 100
+        """, (session['user_id'],))
+        persistent_feed = []
+        for row in cur.fetchall():
+            persistent_feed.append({
+                'title': row[0],
+                'mod_combination': row[1] or 'NM',
+                'stars': round(row[2], 2),
+                'is_fc': row[3],
+                'timestamp': row[4].isoformat() if row[4] else ''
+            })
+
         cur.close()
         conn.close()
 
@@ -195,7 +238,8 @@ def home():
                                rank=current_rank,
                                goals=formatted_goals,
                                stats=stats,
-                               star_data=star_data)
+                               star_data=star_data,
+                               persistent_feed=persistent_feed)
     except Exception as e:
         # Debugging: Print error to console for Render Logs
         print(f"Error in home route: {e}")
@@ -232,21 +276,48 @@ def add_goal():
 
         # V6: New Mod Field
         req_mod = data.get('required_mod', 'Any')
+        use_mod_combo = data.get('use_mod_combo', False)
+        mod_combination = data.get('mod_combination', None) if use_mod_combo else None
+        beatmap_id = data.get('beatmap_id', None)
+        beatmap_name = data.get('beatmap_name', None)
+        use_length = data.get('use_length', False)
+        use_combo = data.get('use_combo', False)
+        use_stars = data.get('use_stars', False)  # Check if stars checkbox is enabled
+        
+        try:
+            map_length = int(data.get('map_length', 0)) if use_length else 0
+        except (ValueError, TypeError):
+            map_length = 0
+            
+        try:
+            min_combo = int(data.get('min_combo', 0)) if use_combo else 0
+        except (ValueError, TypeError):
+            min_combo = 0
 
         # 2. Build Criteria JSON
         criteria = {
             "type": goal_type,
-            "min_stars": min_stars,
-            "mod": req_mod, # V6: Use selected mod
+            "min_stars": min_stars if use_stars else 0,  # Only enforce if checkbox is checked
+            "mod": req_mod if not use_mod_combo else 'Any', # Use mod only if not using combination
+            "mod_combination": mod_combination if (use_mod_combo and mod_combination) else None,
             "use_acc": use_acc,
             "acc_needed": acc_needed,
+            "beatmap_id": int(beatmap_id) if beatmap_id else None,
+            "beatmap_name": beatmap_name,
+            "use_length": use_length,
+            "map_length": map_length,
+            "use_combo": use_combo,
+            "min_combo": min_combo,
             "streak": False 
         }
 
         # 3. Generate Title
         title = data.get('title')
         if not title:
-            title = f"{min_stars}★+ {goal_type.upper()}"
+            if beatmap_name:
+                title = f"FC {beatmap_name}"
+            else:
+                title = f"{min_stars}★+ {goal_type.upper()}"
 
         conn = get_db_connection()
         cur = conn.cursor()
@@ -310,6 +381,39 @@ def check_scores():
     # V6: Returns rich JSON payload for live updates
     result = process_session_logic()
     return jsonify(result)
+
+@app.route('/get_goal_maps', methods=['POST'])
+def get_goal_maps():
+    """Returns list of maps that contributed to a goal"""
+    if 'user_id' not in session: return jsonify({'error': 'Unauthorized'}), 401
+    
+    data = request.json
+    goal_id = data.get('goal_id')
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    cur.execute("""
+        SELECT sh.beatmap_name, sh.stars, sh.mod_combination, sh.timestamp, sh.is_fc
+        FROM goal_contributions gc
+        JOIN score_history sh ON gc.score_history_id = sh.id
+        WHERE gc.goal_id = %s AND gc.user_id = %s
+        ORDER BY sh.timestamp DESC
+    """, (goal_id, session['user_id']))
+    
+    maps = []
+    for row in cur.fetchall():
+        maps.append({
+            'name': row[0],
+            'stars': round(row[1], 2),
+            'mods': row[2] or 'NM',
+            'timestamp': row[3].isoformat() if row[3] else '',
+            'is_fc': row[4]
+        })
+    
+    cur.close()
+    conn.close()
+    return jsonify({'maps': maps})
 
 # --- DATA MANAGEMENT ---
 
@@ -439,7 +543,28 @@ def process_session_logic():
             stars = beatmap['difficulty_rating']
             acc = score['accuracy']
             raw_mods = score['mods']
+            
+            # Convert mods array to string combination (e.g., ["HD", "DT"] -> "HDDT")
+            mod_combination = ''.join(raw_mods) if isinstance(raw_mods, list) else (raw_mods if raw_mods else 'NM')
+            if not mod_combination or mod_combination == '[]': mod_combination = 'NM'
+            
+            # Get map_max_combo first (needed for strict FC check)
+            map_max_combo = beatmap.get('max_combo', 0)
+            if map_max_combo == 0: map_max_combo = score['max_combo']
+            
+            # Get map length and beatmap_id
+            map_length = beatmap.get('total_length', 0)  # in seconds
+            beatmap_id = beatmap.get('id', 0)
+            
+            # Strict FC: combo must exactly match map max combo (for database storage)
             is_strict_fc = (score['max_combo'] == map_max_combo and map_max_combo > 0)
+            
+            # Flexible FC: no misses (counts both PFC and non-PFC scores for goal progress)
+            # This includes scores with slider breaks but no misses, unlike strict FC which requires perfect combo match
+            miss_count = score.get('statistics', {}).get('miss_count', 0)
+            # A score is an FC if it has no misses and passed (not an F rank)
+            # This is more lenient than strict FC, allowing non-PFC scores to count for goals
+            is_flexible_fc = (miss_count == 0 and score['rank'] != 'F')
 
             mod_group = "NM"
             if "DT" in raw_mods or "NC" in raw_mods: mod_group = "DT"
@@ -447,9 +572,10 @@ def process_session_logic():
             elif "HD" in raw_mods: mod_group = "HD"
             elif "FL" in raw_mods: mod_group = "FL"
 
-            map_max_combo = beatmap.get('max_combo', 0)
-            if map_max_combo == 0: map_max_combo = score['max_combo']
             eff_stars = calculate_effective_stars(stars, acc, score['max_combo'], map_max_combo)
+
+            # Track goal contributions for this score
+            goal_contributions_for_score = []
 
             # CHECK GOALS
             for goal in active_goals:
@@ -459,17 +585,43 @@ def process_session_logic():
 
                 if g_is_paused: continue
                 
-                # Star Check
-                if stars < g_criteria.get('min_stars', 0): continue 
+                # Star Check (must be >= required)
+                # Note: min_stars defaults to 0, so if not set (use_stars was false), any star rating passes
+                min_stars_req = g_criteria.get('min_stars', 0)
+                if min_stars_req > 0 and stars < min_stars_req: continue 
                 
-                # V6: Mod Check
+                # Mod Check - support both single mod and mod combination
+                # Priority: mod_combination > mod
+                req_mod_combination = g_criteria.get('mod_combination', None)
                 req_mod = g_criteria.get('mod', 'Any')
-                if req_mod != 'Any' and req_mod != mod_group: continue
+                
+                if req_mod_combination and req_mod_combination != 'Any' and req_mod_combination:
+                    # Check if mod combination matches exactly (case-sensitive)
+                    if mod_combination != req_mod_combination: continue
+                elif req_mod != 'Any' and req_mod:
+                    # Single mod check - must match mod_group
+                    if req_mod != mod_group: continue
 
-                # Accuracy Check
+                # Map-specific goal check (must match exactly)
+                req_beatmap_id = g_criteria.get('beatmap_id', None)
+                if req_beatmap_id is not None:
+                    if beatmap_id != int(req_beatmap_id): continue
+                
+                # Map length check (must be >= required)
+                if g_criteria.get('use_length', False):
+                    req_length = int(g_criteria.get('map_length', 0))
+                    if map_length < req_length: continue
+                
+                # Combo check (must be >= required)
+                if g_criteria.get('use_combo', False):
+                    req_combo = int(g_criteria.get('min_combo', 0))
+                    if score['max_combo'] < req_combo: continue
+
+                # Accuracy Check (must be >= required)
                 if g_criteria.get('use_acc', False):
                     required_acc = float(g_criteria.get('acc_needed', 0))
                     if (acc * 100) < required_acc: continue
+                
 
                 req_type = g_criteria.get('type', 'count')
                 success = False
@@ -477,7 +629,7 @@ def process_session_logic():
                 if req_type == 'pass':
                     success = (score['rank'] != 'F')
                 elif req_type == 'fc':
-                    success = is_strict_fc # V6: Use strict check
+                    success = is_flexible_fc # Use flexible FC check (counts both PFC and non-PFC)
                 elif req_type == 'ss':
                     if score['rank'] in ['X', 'XH']:
                         success = True
@@ -488,21 +640,42 @@ def process_session_logic():
                     new_prog = g_current + 1
                     completed = (new_prog >= g_target)
                     cur.execute("UPDATE user_active_goals SET current_progress = %s, is_completed = %s WHERE id = %s", (new_prog, completed, g_id))
+                    
+                    # Track which score contributed to this goal
+                    goal_contributions_for_score.append(g_id)
                 else:
                     if g_criteria.get('streak', False):
                         cur.execute("UPDATE user_active_goals SET current_progress = 0 WHERE id = %s", (g_id,))
 
-            # Save History (V6: includes is_fc)
+            # Save History (V6: includes is_fc, mod_combination, beatmap_id, map_length, max_combo)
             cur.execute("""
-                INSERT INTO score_history (user_id, osu_score_id, beatmap_name, mods, stars, effective_stars, accuracy, is_fc)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            """, (session['user_id'], osu_score_id, beatmapset['title'], mod_group, stars, eff_stars, acc, is_strict_fc))
+                INSERT INTO score_history (user_id, osu_score_id, beatmap_name, mods, mod_combination, stars, effective_stars, accuracy, is_fc, beatmap_id, map_length, max_combo)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+            """, (session['user_id'], osu_score_id, beatmapset['title'], mod_group, mod_combination, stars, eff_stars, acc, is_strict_fc, beatmap_id, map_length, score['max_combo']))
+            
+            score_history_id = cur.fetchone()[0]
+            
+            # Track goal contributions
+            for g_id in goal_contributions_for_score:
+                cur.execute("""
+                    INSERT INTO goal_contributions (goal_id, score_history_id, user_id)
+                    VALUES (%s, %s, %s)
+                """, (g_id, score_history_id, session['user_id']))
             
             col_name = f"{mod_group.lower()}_rating"
             cur.execute(f"UPDATE user_mastery SET {col_name} = ({col_name} * 0.95) + ({eff_stars} * 0.05) WHERE user_id = %s", (session['user_id'],))
             
-            # V6: Prepare feed item
-            new_feed_items.append({'title': beatmapset['title'], 'stars': round(stars, 2), 'rank': score['rank'], 'mods': mod_group, 'is_fc': is_strict_fc})
+            # V6: Prepare feed item with mod combination
+            new_feed_items.append({
+                'title': beatmapset['title'], 
+                'stars': round(stars, 2), 
+                'rank': score['rank'], 
+                'mods': mod_group, 
+                'mod_combination': mod_combination,
+                'is_fc': is_strict_fc,
+                'timestamp': score.get('created_at', '')
+            })
 
 
         conn.commit()
@@ -521,11 +694,29 @@ def process_session_logic():
         cur.close()
         conn.close()
         
+        # Fetch persistent feed (last 100 scores) - we'll get rank from API if needed, for now use is_fc
+        cur.execute("""
+            SELECT beatmap_name, mod_combination, stars, is_fc, timestamp
+            FROM score_history 
+            WHERE user_id = %s 
+            ORDER BY timestamp DESC 
+            LIMIT 100
+        """, (session['user_id'],))
+        persistent_feed = []
+        for row in cur.fetchall():
+            persistent_feed.append({
+                'title': row[0],
+                'mod_combination': row[1] or 'NM',
+                'stars': round(row[2], 2),
+                'is_fc': row[3]
+            })
+        
         # V6: Return rich JSON payload
         return { 
             "status": "success", 
             "updated": updates_made, 
             "feed": new_feed_items,
+            "persistent_feed": persistent_feed,
             "stats": list(new_stats) if new_stats else [0,0,0,0,0],
             "goals": goal_states,
             "fc_counts": fc_counts

@@ -89,13 +89,22 @@
             </div>
 
             <div class="panel-card glass-panel">
-                <div class="panel-header"><h3>Current Focus</h3></div>
+                <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <h3>Current Focus</h3>
+                    <div id="goalPagination" style="display: none; gap: 5px;">
+                        <button class="btn-pill icon-only" onclick="prevGoalPage()" id="prevGoalBtn" style="padding: 5px 10px;"><i class="fa-solid fa-chevron-left"></i></button>
+                        <span id="goalPageInfo" style="color: #aaa; font-size: 12px;">1 / 1</span>
+                        <button class="btn-pill icon-only" onclick="nextGoalPage()" id="nextGoalBtn" style="padding: 5px 10px;"><i class="fa-solid fa-chevron-right"></i></button>
+                    </div>
+                </div>
                 <div class="goals-list-container" id="goalListDashboard">
                     {% if goals %}
                         {% for goal in goals %}
                         <div class="osu-goal-card {% if goal.is_paused %}paused{% endif %} {% if goal.is_locked %}locked{% endif %}" 
                              data-id="{{ goal.id }}" 
-                             draggable="{{ 'false' if goal.is_locked else 'true' }}">
+                             draggable="{{ 'false' if goal.is_locked else 'true' }}"
+                             onclick="showGoalMaps({{ goal.id }})"
+                             style="cursor: pointer;">
                             
                             <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px;">
                                 <div class="goal-badges">
@@ -103,7 +112,7 @@
                                     {% if goal.criteria.mod != 'Any' %}<span class="goal-type-badge" style="background:#555">{{ goal.criteria.mod }}</span>{% endif %}
                                 </div>
                                 
-                                <div class="goal-menu-container" style="position: relative;">
+                                <div class="goal-menu-container" style="position: relative;" onclick="event.stopPropagation();">
                                     <i class="fa-solid fa-ellipsis-vertical menu-dots" onclick="toggleGoalMenu('{{ goal.id }}')"></i>
                                     <div class="goal-dropdown" id="menu-{{ goal.id }}">
                                         <div onclick="updateGoalStatus('{{ goal.id }}', '{{ 'unlock' if goal.is_locked else 'lock' }}')">
@@ -143,30 +152,51 @@
             
             <div class="goal-creator-form">
                 <div class="form-group">
-                    <label>Goal Type</label>
+                    <label>Goal Type <span style="color: #ff4444;">*</span></label>
                     <select id="goal-type" class="input-dark" onchange="updateSentencePreview()">
                         <option value="fc">Full Combo (FC)</option>
                         <option value="pass">Pass (Clear)</option>
                         <option value="ss">SS (Perfect)</option>
+                        <option value="count">Count</option>
                     </select>
                 </div>
 
                 <div class="form-row" style="display: flex; gap: 15px;">
                     <div class="form-group" style="flex: 1;">
-                        <label>Count</label>
-                        <input type="number" id="goal-count" value="1" min="1" class="input-dark" oninput="updateSentencePreview()">
+                        <label>Count <span style="color: #ff4444;">*</span></label>
+                        <input type="number" id="goal-count" value="1" min="1" class="input-dark" oninput="updateSentencePreview()" required>
                     </div>
                     <div class="form-group" style="flex: 1;">
                         <div class="checkbox-wrapper" style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
-                            <input type="checkbox" id="use-stars" checked onchange="toggleStarInput()">
+                            <input type="checkbox" id="use-stars" onchange="toggleStarInput()">
                             <label for="use-stars">Min Stars (★)</label>
                         </div>
-                        <input type="number" id="goal-stars" value="5.0" step="0.1" class="input-dark" oninput="updateSentencePreview()">
+                        <input type="number" id="goal-stars" value="5.0" step="0.1" class="input-dark" disabled oninput="updateSentencePreview()">
                     </div>
                 </div>
 
                 <div class="form-group">
-                    <label>Required Mod</label>
+                    <label>Beatmap Link (Optional)</label>
+                    <input type="text" id="goal-beatmap-link" placeholder="https://osu.ppy.sh/beatmaps/123456" class="input-dark" oninput="parseBeatmapLink()">
+                    <small style="color: #888; font-size: 11px;">Paste osu! beatmap URL to create a specific map goal</small>
+                </div>
+                
+                <div id="beatmap-info" style="display: none; background: rgba(255,255,255,0.05); padding: 10px; border-radius: 5px; margin: 10px 0;">
+                    <div style="font-weight: bold;" id="beatmap-name-display"></div>
+                    <small style="color: #888;" id="beatmap-id-display"></small>
+                </div>
+
+                <div class="form-group">
+                    <div class="checkbox-wrapper" style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
+                        <input type="checkbox" id="use-mod-combo" onchange="toggleModComboInput()">
+                        <label for="use-mod-combo">Mod Combination</label>
+                    </div>
+                    <input type="text" id="goal-mod-combo" placeholder="HDDT, HRHD, etc." class="input-dark" disabled oninput="updateSentencePreview()">
+                    <small style="color: #888; font-size: 11px;">Leave blank to use single mod selector below</small>
+                </div>
+
+                <div class="form-group">
+                    <label>Required Mod (if not using combination)</label>
                     <select id="goal-mod" class="input-dark" onchange="updateSentencePreview()">
                         <option value="Any">Any Mod</option>
                         <option value="NM">NoMod</option>
@@ -176,12 +206,29 @@
                     </select>
                 </div>
 
+                <div class="form-row" style="display: flex; gap: 15px;">
+                    <div class="form-group" style="flex: 1;">
+                        <div class="checkbox-wrapper" style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
+                            <input type="checkbox" id="use-acc" onchange="toggleAccInput()">
+                            <label for="use-acc">Require Accuracy (%)</label>
+                        </div>
+                        <input type="number" id="goal-acc" placeholder="98.5" min="0" max="100" step="0.5" class="input-dark" disabled oninput="updateSentencePreview()">
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <div class="checkbox-wrapper" style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
+                            <input type="checkbox" id="use-length" onchange="toggleLengthInput()">
+                            <label for="use-length">Min Map Length (sec)</label>
+                        </div>
+                        <input type="number" id="goal-length" placeholder="120" min="0" class="input-dark" disabled oninput="updateSentencePreview()">
+                    </div>
+                </div>
+
                 <div class="form-group">
                     <div class="checkbox-wrapper" style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
-                        <input type="checkbox" id="use-acc" onchange="toggleAccInput()">
-                        <label for="use-acc">Require Accuracy (%)</label>
+                        <input type="checkbox" id="use-combo" onchange="toggleComboInput()">
+                        <label for="use-combo">Min Combo</label>
                     </div>
-                    <input type="number" id="goal-acc" placeholder="98.5" min="0" max="100" step="0.5" class="input-dark" disabled oninput="updateSentencePreview()">
+                    <input type="number" id="goal-combo" placeholder="500" min="0" class="input-dark" disabled oninput="updateSentencePreview()">
                 </div>
 
                 <div class="preview-box" style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px; border-left: 3px solid var(--osu-pink); margin: 20px 0;">
@@ -197,9 +244,20 @@
     <div id="tab-feed" class="tab-content" style="display: none;">
         <div class="panel-card glass-panel" style="max-width: 800px; margin: 0 auto;">
             <div class="panel-header"><h3>Session Feed</h3></div>
-            <div id="feed-container" class="feed-content" style="padding: 20px; display: flex; flex-direction: column; gap: 10px;">
+            <div id="feed-container" class="feed-content" style="padding: 20px; display: flex; flex-direction: column; gap: 10px; max-height: 600px; overflow-y: auto;">
                 <div style="color:#888; text-align: center;">New plays will appear here automatically...</div>
             </div>
+        </div>
+    </div>
+    
+    <!-- Goal Maps Modal -->
+    <div id="goalMapsModal" class="modal hidden" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; justify-content:center; align-items:center;">
+        <div class="modal-content osu-alert" style="background:#222; padding:30px; border-radius:10px; max-width:500px; max-height:500px; overflow-y:auto;">
+            <h3 style="color: #ff66aa; margin-bottom: 15px;" id="goalMapsTitle">Goal Maps</h3>
+            <div id="goalMapsList" style="display: flex; flex-direction: column; gap: 10px;">
+                <div style="color:#888; text-align: center;">Loading...</div>
+            </div>
+            <button class="btn-pill" style="margin-top: 20px; width: 100%;" onclick="closeGoalMapsModal()">Close</button>
         </div>
     </div>
 
@@ -222,6 +280,94 @@
     let secondsElapsed = 0;
     let timerInterval;
 
+    // Goal pagination
+    let currentGoalPage = 0;
+    const goalsPerPage = 6;
+    
+    function updateGoalPagination() {
+        const goals = document.querySelectorAll('.osu-goal-card');
+        const totalPages = Math.ceil(goals.length / goalsPerPage);
+        const pagination = document.getElementById('goalPagination');
+        const pageInfo = document.getElementById('goalPageInfo');
+        const prevBtn = document.getElementById('prevGoalBtn');
+        const nextBtn = document.getElementById('nextGoalBtn');
+        
+        if(totalPages <= 1) {
+            pagination.style.display = 'none';
+            goals.forEach(g => g.style.display = 'block');
+            return;
+        }
+        
+        pagination.style.display = 'flex';
+        pageInfo.textContent = `${currentGoalPage + 1} / ${totalPages}`;
+        prevBtn.disabled = currentGoalPage === 0;
+        nextBtn.disabled = currentGoalPage >= totalPages - 1;
+        
+        goals.forEach((goal, index) => {
+            const page = Math.floor(index / goalsPerPage);
+            goal.style.display = page === currentGoalPage ? 'block' : 'none';
+        });
+    }
+    
+    function prevGoalPage() {
+        if(currentGoalPage > 0) {
+            currentGoalPage--;
+            updateGoalPagination();
+        }
+    }
+    
+    function nextGoalPage() {
+        const goals = document.querySelectorAll('.osu-goal-card');
+        const totalPages = Math.ceil(goals.length / goalsPerPage);
+        if(currentGoalPage < totalPages - 1) {
+            currentGoalPage++;
+            updateGoalPagination();
+        }
+    }
+    
+    function showGoalMaps(goalId) {
+        const modal = document.getElementById('goalMapsModal');
+        const list = document.getElementById('goalMapsList');
+        const title = document.getElementById('goalMapsTitle');
+        
+        // Get goal title
+        const goalCard = document.querySelector(`[data-id="${goalId}"]`);
+        const goalTitle = goalCard ? goalCard.querySelector('.goal-title').textContent : 'Goal';
+        title.textContent = `Maps for: ${goalTitle}`;
+        
+        list.innerHTML = '<div style="color:#888; text-align: center;">Loading...</div>';
+        modal.style.display = 'flex';
+        
+        fetch('/get_goal_maps', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ goal_id: goalId })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if(data.maps && data.maps.length > 0) {
+                list.innerHTML = '';
+                data.maps.forEach(map => {
+                    const item = document.createElement('div');
+                    item.style.cssText = "background:rgba(255,255,255,0.05); padding:10px; border-radius:5px;";
+                    item.innerHTML = `<div style="font-weight:bold;">${map.name}</div>
+                                     <div style="font-size:12px; color:#aaa;">${map.stars}★ ${map.mods} ${map.is_fc ? '(FC)' : ''}</div>`;
+                    list.appendChild(item);
+                });
+            } else {
+                list.innerHTML = '<div style="color:#888; text-align: center;">No maps yet</div>';
+            }
+        })
+        .catch(error => {
+            console.error("Error fetching goal maps:", error);
+            list.innerHTML = '<div style="color:#ff4444; text-align: center;">Error loading maps</div>';
+        });
+    }
+    
+    function closeGoalMapsModal() {
+        document.getElementById('goalMapsModal').style.display = 'none';
+    }
+    
     document.addEventListener('DOMContentLoaded', () => {
         if (localStorage.getItem('osu_session_active') === 'true') {
             setSessionUI(true);
@@ -229,12 +375,23 @@
         }
         if(document.getElementById('goal-type')) updateSentencePreview();
         window.onclick = function(event) {
-            if (!event.target.matches('.menu-dots')) {
+            if (!event.target.matches('.menu-dots') && !event.target.closest('.osu-goal-card')) {
                 document.querySelectorAll('.goal-dropdown').forEach(d => d.style.display = 'none');
             }
         }
-        // Ensure initial star state is correct
+        // Ensure initial state is correct
         toggleStarInput();
+        toggleModComboInput();
+        toggleLengthInput();
+        toggleComboInput();
+        
+        // Initialize goal pagination
+        updateGoalPagination();
+        
+        // Load persistent feed on page load
+        {% if persistent_feed %}
+        updateFeed([], {{ persistent_feed|tojson }});
+        {% endif %}
     });
 
     function toggleSession() {
@@ -308,23 +465,43 @@
                         if(el) el.innerText = data.fc_counts[i] || 0;
                     }
 
-                    // 4. Update Feed
-                    if(data.feed && data.feed.length > 0) {
-                        const feed = document.getElementById('feed-container');
-                        if(feed.children[0].innerText.includes('New plays')) feed.innerHTML = '';
-                        data.feed.forEach(item => {
-                            const d = document.createElement('div');
-                            d.className = 'feed-item fade-in';
-                            d.style.cssText = "background:rgba(255,255,255,0.05); padding:10px; border-left:3px solid #66ccff; border-radius:5px;";
-                            d.innerHTML = `<div style="font-weight:bold;">${item.title}</div>
-                                           <div style="font-size:12px; color:#aaa;">${item.stars}★ ${item.mods} - Rank ${item.rank} ${item.is_fc ? '(FC)' : ''}</div>`;
-                            feed.prepend(d);
-                        });
-                    }
+                    // 4. Update Feed with mod combinations
+                    updateFeed(data.feed || [], data.persistent_feed || []);
                 }
             })
             .catch(error => { console.error("Error fetching scores:", error); })
             .finally(() => { if(icon) icon.classList.remove('fa-spin'); });
+    }
+    
+    function updateFeed(newItems, persistentItems) {
+        const feed = document.getElementById('feed-container');
+        if(!feed) return;
+        
+        // Clear placeholder
+        if(feed.children[0] && feed.children[0].innerText.includes('New plays')) feed.innerHTML = '';
+        
+        // Add new items
+        newItems.forEach(item => {
+            const d = document.createElement('div');
+            d.className = 'feed-item fade-in';
+            d.style.cssText = "background:rgba(255,255,255,0.05); padding:10px; border-left:3px solid #66ccff; border-radius:5px;";
+            const modDisplay = item.mod_combination || item.mods || 'NM';
+            d.innerHTML = `<div style="font-weight:bold;">${item.title}</div>
+                           <div style="font-size:12px; color:#aaa;">${item.stars}★ ${modDisplay} - Rank ${item.rank || ''} ${item.is_fc ? '(FC)' : ''}</div>`;
+            feed.prepend(d);
+        });
+        
+        // If no new items but we have persistent feed, show that
+        if(newItems.length === 0 && persistentItems.length > 0 && feed.children.length === 0) {
+            persistentItems.forEach(item => {
+                const d = document.createElement('div');
+                d.className = 'feed-item';
+                d.style.cssText = "background:rgba(255,255,255,0.05); padding:10px; border-left:3px solid #888; border-radius:5px;";
+                d.innerHTML = `<div style="font-weight:bold;">${item.title}</div>
+                               <div style="font-size:12px; color:#aaa;">${item.stars}★ ${item.mod_combination} ${item.is_fc ? '(FC)' : ''}</div>`;
+                feed.appendChild(d);
+            });
+        }
     }
 
     // --- GOAL LOGIC ---
@@ -349,6 +526,51 @@
         document.getElementById('goal-acc').disabled = !document.getElementById('use-acc').checked;
         updateSentencePreview();
     }
+    
+    function toggleModComboInput() {
+        document.getElementById('goal-mod-combo').disabled = !document.getElementById('use-mod-combo').checked;
+        updateSentencePreview();
+    }
+    
+    function toggleLengthInput() {
+        document.getElementById('goal-length').disabled = !document.getElementById('use-length').checked;
+        updateSentencePreview();
+    }
+    
+    function toggleComboInput() {
+        document.getElementById('goal-combo').disabled = !document.getElementById('use-combo').checked;
+        updateSentencePreview();
+    }
+    
+    function parseBeatmapLink() {
+        const link = document.getElementById('goal-beatmap-link').value;
+        const infoDiv = document.getElementById('beatmap-info');
+        const nameDisplay = document.getElementById('beatmap-name-display');
+        const idDisplay = document.getElementById('beatmap-id-display');
+        
+        if(!link) {
+            infoDiv.style.display = 'none';
+            updateSentencePreview();
+            return;
+        }
+        
+        // Extract beatmap ID from URL
+        const match = link.match(/beatmaps\/(\d+)/);
+        if(match) {
+            const beatmapId = match[1];
+            idDisplay.textContent = `Beatmap ID: ${beatmapId}`;
+            nameDisplay.textContent = 'Loading beatmap name...';
+            infoDiv.style.display = 'block';
+            
+            // Try to fetch beatmap name (would need API call, for now just show ID)
+            // For now, we'll let user enter name manually or fetch it
+            nameDisplay.textContent = `Beatmap ID: ${beatmapId}`;
+            updateSentencePreview();
+        } else {
+            infoDiv.style.display = 'none';
+        }
+        updateSentencePreview();
+    }
 
     function updateSentencePreview() {
         const type = document.getElementById('goal-type').value;
@@ -358,42 +580,115 @@
         const useStars = document.getElementById('use-stars').checked;
         const useAcc = document.getElementById('use-acc').checked;
         const acc = document.getElementById('goal-acc').value || 0;
+        const useModCombo = document.getElementById('use-mod-combo').checked;
+        const modCombo = document.getElementById('goal-mod-combo').value || '';
+        const useLength = document.getElementById('use-length').checked;
+        const length = document.getElementById('goal-length').value || 0;
+        const useCombo = document.getElementById('use-combo').checked;
+        const combo = document.getElementById('goal-combo').value || 0;
+        const beatmapLink = document.getElementById('goal-beatmap-link').value;
+        const beatmapId = beatmapLink.match(/beatmaps\/(\d+)/) ? beatmapLink.match(/beatmaps\/(\d+)/)[1] : null;
         
         let textParts = [];
+        
+        // If specific beatmap, format as "FC [name]"
+        if(beatmapId) {
+            const beatmapName = document.getElementById('beatmap-name-display').textContent.replace('Beatmap ID: ', '') || 'this map';
+            if(type === 'fc') {
+                textParts.push(`FC ${beatmapName}`);
+            } else {
+                textParts.push(`${type.toUpperCase()} ${beatmapName}`);
+            }
+        } else {
+            // Base phrase
+            textParts.push(`${type.toUpperCase()} ${count} map${count>1?'s':''}`);
+        }
 
-        // 1. Base Phrase
-        textParts.push(`${type.toUpperCase()} ${count} map${count>1?'s':''}`);
-
-        // 2. Mod Requirement
-        if (mod !== 'Any') {
+        // Mod combination or single mod
+        if(useModCombo && modCombo) {
+            textParts.push(`with ${modCombo}`);
+        } else if(mod !== 'Any' && !beatmapId) {
             textParts.push(`with ${mod}`);
         }
 
-        // 3. Star Requirement (Clearer Grammar)
-        if (useStars && parseFloat(stars) > 0) {
+        // Star requirement
+        if(useStars && parseFloat(stars) > 0 && !beatmapId) {
             textParts.push(`on maps ${stars}★ or higher`); 
         }
 
-        // 4. Accuracy Requirement (Clearer Grammar)
-        if (useAcc && parseFloat(acc) > 0) {
+        // Accuracy requirement
+        if(useAcc && parseFloat(acc) > 0) {
             textParts.push(`with at least ${acc}% accuracy`);
         }
+        
+        // Length requirement
+        if(useLength && parseFloat(length) > 0) {
+            const minutes = Math.floor(length / 60);
+            const seconds = length % 60;
+            if(minutes > 0) {
+                textParts.push(`on maps at least ${minutes}:${String(seconds).padStart(2, '0')} long`);
+            } else {
+                textParts.push(`on maps at least ${length} seconds long`);
+            }
+        }
+        
+        // Combo requirement
+        if(useCombo && parseFloat(combo) > 0) {
+            textParts.push(`with at least ${combo} combo`);
+        }
 
-        document.getElementById('sentence-preview').innerText = textParts.join(', ');
+        document.getElementById('sentence-preview').innerText = textParts.join(', ') || `${type.toUpperCase()} ${count} map${count>1?'s':''}`;
     }
     function submitGoal() {
+        const count = document.getElementById('goal-count').value;
+        const type = document.getElementById('goal-type').value;
+        
+        if(!count || count < 1) {
+            showToast("Error", "Count is required and must be at least 1");
+            return;
+        }
+        
+        const beatmapLink = document.getElementById('goal-beatmap-link').value;
+        const beatmapId = beatmapLink.match(/beatmaps\/(\d+)/) ? beatmapLink.match(/beatmaps\/(\d+)/)[1] : null;
+        const beatmapName = beatmapId ? document.getElementById('beatmap-name-display').textContent.replace('Beatmap ID: ', '') : null;
+        
+        const payload = {
+            type: type,
+            count_needed: count,
+            use_stars: document.getElementById('use-stars').checked,
+            target_stars: document.getElementById('goal-stars').value,
+            required_mod: document.getElementById('goal-mod').value,
+            use_accuracy: document.getElementById('use-acc').checked,
+            accuracy_needed: document.getElementById('goal-acc').value,
+            use_mod_combo: document.getElementById('use-mod-combo').checked,
+            mod_combination: document.getElementById('goal-mod-combo').value || null,
+            beatmap_id: beatmapId,
+            beatmap_name: beatmapName,
+            use_length: document.getElementById('use-length').checked,
+            map_length: document.getElementById('goal-length').value || 0,
+            use_combo: document.getElementById('use-combo').checked,
+            min_combo: document.getElementById('goal-combo').value || 0,
+            title: document.getElementById('sentence-preview').innerText
+        };
+        
         fetch('/add_goal', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                type: document.getElementById('goal-type').value,
-                count_needed: document.getElementById('goal-count').value,
-                target_stars: document.getElementById('goal-stars').value,
-                required_mod: document.getElementById('goal-mod').value,
-                use_accuracy: document.getElementById('use-acc').checked,
-                accuracy_needed: document.getElementById('goal-acc').value,
-                title: document.getElementById('sentence-preview').innerText
-            })
-        }).then(() => { switchTab('dashboard'); location.reload(); });
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(res => res.json())
+        .then(data => {
+            if(data.error) {
+                showToast("Error", data.error);
+            } else {
+                switchTab('dashboard'); 
+                location.reload();
+            }
+        })
+        .catch(error => {
+            console.error("Error creating goal:", error);
+            showToast("Error", "Failed to create goal");
+        });
     }
 
     // --- UI/HELPERS ---
