@@ -24,6 +24,7 @@
     <div class="nav-tabs">
         <div class="nav-tab active" onclick="switchTab('dashboard')">Dashboard</div>
         <div class="nav-tab" onclick="switchTab('goals')">Goals</div>
+        <div class="nav-tab" onclick="switchTab('completed')">Completed Goals</div>
         <div class="nav-tab" onclick="switchTab('feed')">Feed</div>
     </div>
 
@@ -187,23 +188,35 @@
                 </div>
 
                 <div class="form-group">
-                    <div class="checkbox-wrapper" style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
-                        <input type="checkbox" id="use-mod-combo" onchange="toggleModComboInput()">
-                        <label for="use-mod-combo">Mod Combination</label>
+                    <label>Mod Combination</label>
+                    <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px;">
+                        <div class="checkbox-wrapper" style="display: flex; align-items: center; gap: 5px;">
+                            <input type="checkbox" id="mod-hd" value="HD" onchange="updateModCombination()">
+                            <label for="mod-hd">HD</label>
+                        </div>
+                        <div class="checkbox-wrapper" style="display: flex; align-items: center; gap: 5px;">
+                            <input type="checkbox" id="mod-hr" value="HR" onchange="updateModCombination()">
+                            <label for="mod-hr">HR</label>
+                        </div>
+                        <div class="checkbox-wrapper" style="display: flex; align-items: center; gap: 5px;">
+                            <input type="checkbox" id="mod-dt" value="DT" onchange="updateModCombination()">
+                            <label for="mod-dt">DT</label>
+                        </div>
+                        <div class="checkbox-wrapper" style="display: flex; align-items: center; gap: 5px;">
+                            <input type="checkbox" id="mod-nc" value="NC" onchange="updateModCombination()">
+                            <label for="mod-nc">NC</label>
+                        </div>
+                        <div class="checkbox-wrapper" style="display: flex; align-items: center; gap: 5px;">
+                            <input type="checkbox" id="mod-fl" value="FL" onchange="updateModCombination()">
+                            <label for="mod-fl">FL</label>
+                        </div>
+                        <div class="checkbox-wrapper" style="display: flex; align-items: center; gap: 5px;">
+                            <input type="checkbox" id="mod-ez" value="EZ" onchange="updateModCombination()">
+                            <label for="mod-ez">EZ</label>
+                        </div>
                     </div>
-                    <input type="text" id="goal-mod-combo" placeholder="HDDT, HRHD, etc." class="input-dark" disabled oninput="updateSentencePreview()">
-                    <small style="color: #888; font-size: 11px;">Leave blank to use single mod selector below</small>
-                </div>
-
-                <div class="form-group">
-                    <label>Required Mod (if not using combination)</label>
-                    <select id="goal-mod" class="input-dark" onchange="updateSentencePreview()">
-                        <option value="Any">Any Mod</option>
-                        <option value="NM">NoMod</option>
-                        <option value="HD">Hidden (HD)</option>
-                        <option value="HR">HardRock (HR)</option>
-                        <option value="DT">DoubleTime (DT)</option>
-                    </select>
+                    <small style="color: #888; font-size: 11px; display: block; margin-top: 5px;">Select mods to combine. If none selected, NM (NoMod) will be applied.</small>
+                    <input type="hidden" id="goal-mod-combo" value="">
                 </div>
 
                 <div class="form-row" style="display: flex; gap: 15px;">
@@ -237,6 +250,37 @@
                 </div>
 
                 <button class="btn-create" onclick="submitGoal()">Create Goal +</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="tab-completed" class="tab-content" style="display: none;">
+        <div class="panel-card glass-panel" style="max-width: 800px; margin: 0 auto;">
+            <div class="panel-header"><h3>Completed Goals</h3></div>
+            <div id="completed-goals-container" class="goals-list-container" style="padding: 20px;">
+                {% if completed_goals %}
+                    {% for goal in completed_goals %}
+                    <div class="osu-goal-card completed" data-id="{{ goal.id }}" style="opacity: 0.8;">
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px;">
+                            <div class="goal-badges">
+                                <span class="goal-type-badge">{{ goal.type }}</span>
+                                {% if goal.criteria.mod != 'Any' %}<span class="goal-type-badge" style="background:#555">{{ goal.criteria.mod }}</span>{% endif %}
+                                <span class="goal-type-badge" style="background:#4caf50;">✓ Completed</span>
+                            </div>
+                        </div>
+                        <div class="goal-title">{{ goal.title }}</div>
+                        <div class="goal-progress-text"><span>{{ goal.current_count }}</span> / {{ goal.count_needed }}</div>
+                        <div class="goal-progress-bg">
+                            <div class="goal-progress-fill" style="width: 100%; background: #4caf50;"></div>
+                        </div>
+                        <div style="font-size: 11px; color: #888; margin-top: 5px;">
+                            Completed on {{ goal.completed_at.strftime('%Y-%m-%d %H:%M') if goal.completed_at else 'N/A' }}
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="empty-state">No completed goals yet. Keep pushing!</div>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -381,9 +425,9 @@
         }
         // Ensure initial state is correct
         toggleStarInput();
-        toggleModComboInput();
         toggleLengthInput();
         toggleComboInput();
+        updateModCombination();  // Initialize mod combination
         
         // Initialize goal pagination
         updateGoalPagination();
@@ -527,11 +571,6 @@
         updateSentencePreview();
     }
     
-    function toggleModComboInput() {
-        document.getElementById('goal-mod-combo').disabled = !document.getElementById('use-mod-combo').checked;
-        updateSentencePreview();
-    }
-    
     function toggleLengthInput() {
         document.getElementById('goal-length').disabled = !document.getElementById('use-length').checked;
         updateSentencePreview();
@@ -576,12 +615,10 @@
         const type = document.getElementById('goal-type').value;
         const count = document.getElementById('goal-count').value || 1;
         const stars = document.getElementById('goal-stars').value || 0;
-        const mod = document.getElementById('goal-mod').value;
         const useStars = document.getElementById('use-stars').checked;
         const useAcc = document.getElementById('use-acc').checked;
         const acc = document.getElementById('goal-acc').value || 0;
-        const useModCombo = document.getElementById('use-mod-combo').checked;
-        const modCombo = document.getElementById('goal-mod-combo').value || '';
+        const modCombo = document.getElementById('goal-mod-combo').value || 'NM';
         const useLength = document.getElementById('use-length').checked;
         const length = document.getElementById('goal-length').value || 0;
         const useCombo = document.getElementById('use-combo').checked;
@@ -604,11 +641,9 @@
             textParts.push(`${type.toUpperCase()} ${count} map${count>1?'s':''}`);
         }
 
-        // Mod combination or single mod
-        if(useModCombo && modCombo) {
+        // Mod combination (always show if not NM, or if NM and not a specific beatmap)
+        if(modCombo !== 'NM' || !beatmapId) {
             textParts.push(`with ${modCombo}`);
-        } else if(mod !== 'Any' && !beatmapId) {
-            textParts.push(`with ${mod}`);
         }
 
         // Star requirement
@@ -652,16 +687,18 @@
         const beatmapId = beatmapLink.match(/beatmaps\/(\d+)/) ? beatmapLink.match(/beatmaps\/(\d+)/)[1] : null;
         const beatmapName = beatmapId ? document.getElementById('beatmap-name-display').textContent.replace('Beatmap ID: ', '') : null;
         
+        const modCombo = document.getElementById('goal-mod-combo').value || 'NM';
+        
         const payload = {
             type: type,
             count_needed: count,
             use_stars: document.getElementById('use-stars').checked,
             target_stars: document.getElementById('goal-stars').value,
-            required_mod: document.getElementById('goal-mod').value,
+            required_mod: 'Any',  // Not used anymore, but keeping for backward compatibility
             use_accuracy: document.getElementById('use-acc').checked,
             accuracy_needed: document.getElementById('goal-acc').value,
-            use_mod_combo: document.getElementById('use-mod-combo').checked,
-            mod_combination: document.getElementById('goal-mod-combo').value || null,
+            use_mod_combo: true,  // Always true now since we use checkboxes
+            mod_combination: modCombo,
             beatmap_id: beatmapId,
             beatmap_name: beatmapName,
             use_length: document.getElementById('use-length').checked,

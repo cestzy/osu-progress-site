@@ -62,7 +62,8 @@ def init_db():
                 is_completed BOOLEAN DEFAULT FALSE,
                 is_locked BOOLEAN DEFAULT FALSE, 
                 is_paused BOOLEAN DEFAULT FALSE,
-                assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMP
             );
         """)
         
@@ -224,6 +225,27 @@ def home():
                 'timestamp': row[4].isoformat() if row[4] else ''
             })
 
+        # 6. Fetch Completed Goals
+        cur.execute("""
+            SELECT id, title, current_progress, target_progress, criteria, COALESCE(completed_at, assigned_at) as completed_at
+            FROM user_active_goals 
+            WHERE user_id = %s AND is_completed = TRUE
+            ORDER BY COALESCE(completed_at, assigned_at) DESC
+        """, (session['user_id'],))
+        completed_rows = cur.fetchall()
+        
+        completed_goals = []
+        for row in completed_rows:
+            completed_goals.append({
+                "id": row[0],
+                "title": row[1],
+                "current_count": row[2] if row[2] is not None else 0,
+                "count_needed": row[3],
+                "criteria": row[4],
+                "completed_at": row[5],  # Using assigned_at as completion time for now
+                "type": row[4].get('type', 'count').upper() if row[4] else 'COUNT'
+            })
+
         cur.close()
         conn.close()
 
@@ -237,6 +259,7 @@ def home():
                                user=user_obj, 
                                rank=current_rank,
                                goals=formatted_goals,
+                               completed_goals=completed_goals,
                                stats=stats,
                                star_data=star_data,
                                persistent_feed=persistent_feed)
@@ -274,10 +297,9 @@ def add_goal():
         except (ValueError, TypeError):
             acc_needed = 0.0
 
-        # V6: New Mod Field
-        req_mod = data.get('required_mod', 'Any')
-        use_mod_combo = data.get('use_mod_combo', False)
-        mod_combination = data.get('mod_combination', None) if use_mod_combo else None
+        # V6: New Mod Field - now always uses mod combination from checkboxes
+        use_mod_combo = data.get('use_mod_combo', True)  # Default to True since we always use checkboxes now
+        mod_combination = data.get('mod_combination', 'NM')  # Default to NM if not provided
         beatmap_id = data.get('beatmap_id', None)
         beatmap_name = data.get('beatmap_name', None)
         use_length = data.get('use_length', False)
@@ -298,8 +320,8 @@ def add_goal():
         criteria = {
             "type": goal_type,
             "min_stars": min_stars if use_stars else 0,  # Only enforce if checkbox is checked
-            "mod": req_mod if not use_mod_combo else 'Any', # Use mod only if not using combination
-            "mod_combination": mod_combination if (use_mod_combo and mod_combination) else None,
+            "mod": 'Any',  # Not used anymore, always use mod_combination
+            "mod_combination": mod_combination if mod_combination else 'NM',  # Always set, default to NM
             "use_acc": use_acc,
             "acc_needed": acc_needed,
             "beatmap_id": int(beatmap_id) if beatmap_id else None,
@@ -639,7 +661,18 @@ def process_session_logic():
                 if success:
                     new_prog = g_current + 1
                     completed = (new_prog >= g_target)
-                    cur.execute("UPDATE user_active_goals SET current_progress = %s, is_completed = %s WHERE id = %s", (new_prog, completed, g_id))
+                    if completed:
+                        # Set completed_at timestamp when goal is completed
+                        cur.execute("""
+                            UPDATE user_active_goals 
+                            SET current_progress = %s, is_completed = %s, completed_at = CURRENT_TIMESTAMP 
+                            WHERE id = %s AND completed_at IS NULL
+                        """, (new_prog, completed, g_id))
+                        # If already completed, just update progress
+                        if cur.rowcount == 0:
+                            cur.execute("UPDATE user_active_goals SET current_progress = %s WHERE id = %s", (new_prog, g_id))
+                    else:
+                        cur.execute("UPDATE user_active_goals SET current_progress = %s, is_completed = %s WHERE id = %s", (new_prog, completed, g_id))
                     
                     # Track which score contributed to this goal
                     goal_contributions_for_score.append(g_id)
