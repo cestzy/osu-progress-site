@@ -69,10 +69,10 @@ body {
 }
 .nav-tab.active { 
     background: var(--osu-pink);
-    color: white !important; /* V6: Ensure active color is always shown */
+    color: white !important; 
 }
 .nav-tab:hover { 
-    background: rgba(255, 102, 170, 0.6); /* V6: Slightly softer hover */
+    background: rgba(255, 102, 170, 0.6); 
     color: white; 
 }
 
@@ -135,7 +135,7 @@ body {
     font-size: 16px;
 }
 
-/* --- MASTERY & STATS (RESTORING MOD COLORS) --- */
+/* --- MASTERY & STATS (MOD COLORS) --- */
 .mastery-row {
     display: flex; align-items: center; justify-content: space-between;
     margin-bottom: 8px; padding: 6px 10px;
@@ -228,7 +228,7 @@ body {
     font-family: inherit; 
     font-size: 13px;
     
-    /* V6: Remove ugly browser default grey appearance for selects/inputs */
+    /* V6: Fixes the light gray background on selects/inputs */
     -webkit-appearance: none; 
     -moz-appearance: none;
     appearance: none;
@@ -241,6 +241,19 @@ body {
 .btn-create {
     background: var(--osu-blue); color: #111; font-weight: bold; border: none;
     padding: 10px; border-radius: 6px; cursor: pointer; margin-top: 5px; font-size: 13px;
+}
+
+/* --- V6: Feed Items --- */
+.feed-item {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+    padding: 10px;
+    border-left: 3px solid var(--osu-blue);
+    margin-bottom: 5px;
+    transition: background 0.2s;
+}
+.feed-item:hover {
+    background: rgba(255, 255, 255, 0.1);
 }
 
 /* --- TOAST --- */
@@ -256,6 +269,7 @@ body {
 .toast-title { font-weight: bold; font-size: 13px; margin-bottom: 2px; color: var(--osu-pink); }
 .toast-body { font-size: 12px; color: #ccc; }
 
+
 /* --- LOGIN PAGE STYLES --- */
 .login-body {
     background-size: cover; background-position: center; background-repeat: no-repeat;
@@ -268,18 +282,6 @@ body {
 .login-logo { max-width: 120px; margin-bottom: 20px; transition: transform 0.3s ease; }
 .login-logo:hover { transform: scale(1.05) rotate(3deg); }
 
-/* V6: Feed Items */
-.feed-item {
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 6px;
-    padding: 10px;
-    border-left: 3px solid var(--osu-blue);
-    margin-bottom: 5px;
-    transition: background 0.2s;
-}
-.feed-item:hover {
-    background: rgba(255, 255, 255, 0.1);
-}
 
 /* --- RESPONSIVE ADJUSTMENTS --- */
 @media (max-width: 1400px) {

@@ -30,56 +30,10 @@ def init_db():
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # Create Tables
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS osu_users (
-                user_id BIGINT PRIMARY KEY, 
-                username TEXT, 
-                global_rank INT
-            );
-        """)
-        
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS user_mastery (
-                user_id BIGINT PRIMARY KEY, 
-                nm_rating FLOAT DEFAULT 0, 
-                hd_rating FLOAT DEFAULT 0, 
-                hr_rating FLOAT DEFAULT 0, 0,
-                dt_rating FLOAT DEFAULT 0, 
-                fl_rating FLOAT DEFAULT 0
-            );
-        """)
-        
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS user_active_goals (
-                id SERIAL PRIMARY KEY, 
-                user_id BIGINT, 
-                title TEXT, 
-                current_progress INT, 
-                target_progress INT, 
-                criteria JSONB, 
-                display_order INT, 
-                is_completed BOOLEAN DEFAULT FALSE,
-                is_locked BOOLEAN DEFAULT FALSE, 
-                is_paused BOOLEAN DEFAULT FALSE,
-                assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        """)
-        
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS score_history (
-                id SERIAL PRIMARY KEY, 
-                user_id BIGINT, 
-                osu_score_id BIGINT, 
-                beatmap_name TEXT, 
-                mods TEXT, 
-                stars FLOAT, 
-                effective_stars FLOAT, 
-                accuracy FLOAT, 
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, 
-                is_fc BOOLEAN DEFAULT FALSE
-            );
-        """)
+        cur.execute("""CREATE TABLE IF NOT EXISTS osu_users (user_id BIGINT PRIMARY KEY, username TEXT, global_rank INT);""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS user_mastery (user_id BIGINT PRIMARY KEY, nm_rating FLOAT DEFAULT 0, hd_rating FLOAT DEFAULT 0, hr_rating FLOAT DEFAULT 0, dt_rating FLOAT DEFAULT 0, fl_rating FLOAT DEFAULT 0);""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS user_active_goals (id SERIAL PRIMARY KEY, user_id BIGINT, title TEXT, current_progress INT, target_progress INT, criteria JSONB, display_order INT, is_completed BOOLEAN DEFAULT FALSE, is_locked BOOLEAN DEFAULT FALSE, is_paused BOOLEAN DEFAULT FALSE, assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS score_history (id SERIAL PRIMARY KEY, user_id BIGINT, osu_score_id BIGINT, beatmap_name TEXT, mods TEXT, stars FLOAT, effective_stars FLOAT, accuracy FLOAT, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, is_fc BOOLEAN DEFAULT FALSE);""")
         
         conn.commit()
         cur.close()
@@ -134,6 +88,8 @@ def process_session_logic():
 
         for score in reversed(recent_scores):
             osu_score_id = score['id']
+            # Check for duplication (V6 FIX)
+            cur.execute("SELECT id FROM score_history WHERE osu_score_id = %s", (osu_score_id,)) 
             if cur.fetchone(): continue
 
             updates_made = True
@@ -162,12 +118,14 @@ def process_session_logic():
                 if g_current is None: g_current = 0
                 if g_is_paused: continue
 
+                # Star Check
                 if stars < g_criteria.get('min_stars', 0): continue 
                 
                 # V6: Mod Check
                 req_mod = g_criteria.get('mod', 'Any')
                 if req_mod != 'Any' and mod_group != req_mod: continue
 
+                # Accuracy Check
                 if g_criteria.get('use_acc', False):
                     required_acc = float(g_criteria.get('acc_needed', 0))
                     if (acc * 100) < required_acc: continue
@@ -176,10 +134,11 @@ def process_session_logic():
                 success = False
                 
                 if req_type == 'pass': success = (score['rank'] != 'F')
-                elif req_type == 'fc': success = is_strict_fc
+                elif req_type == 'fc': success = is_strict_fc # V6: Only strict FC counts
                 elif req_type == 'ss': success = score['rank'] in ['X', 'XH']
                 elif req_type == 'count': success = True
 
+                # Update Goal
                 if success:
                     new_prog = g_current + 1
                     completed = (new_prog >= g_target)
