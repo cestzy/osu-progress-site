@@ -104,6 +104,8 @@ def init_db():
             cur.execute("ALTER TABLE score_history ADD COLUMN IF NOT EXISTS beatmap_id BIGINT;")
             cur.execute("ALTER TABLE score_history ADD COLUMN IF NOT EXISTS map_length INT;")
             cur.execute("ALTER TABLE score_history ADD COLUMN IF NOT EXISTS max_combo INT;")
+            cur.execute("ALTER TABLE score_history ADD COLUMN IF NOT EXISTS is_fc BOOLEAN DEFAULT FALSE;")
+            cur.execute("ALTER TABLE user_active_goals ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP;")
         except:
             pass  # Columns might already exist
         
@@ -511,15 +513,28 @@ def export_data():
     cur = conn.cursor()
     
     cur.execute("""
-        SELECT beatmap_name, mods, stars, effective_stars, accuracy, timestamp 
+        SELECT beatmap_name, mod_combination, mods, stars, effective_stars, accuracy, is_fc, timestamp 
         FROM score_history WHERE user_id = %s ORDER BY timestamp DESC
     """, (session['user_id'],))
     rows = cur.fetchall()
     
     si = io.StringIO()
     cw = csv.writer(si)
-    cw.writerow(['Map Name', 'Mods', 'Stars', 'Effective Stars', 'Accuracy', 'Date'])
-    cw.writerows(rows)
+    cw.writerow(['Map Name', 'Mod Combination', 'Mod Group', 'Stars', 'Effective Stars', 'Accuracy', 'Is FC', 'Date'])
+    # Format rows for CSV
+    formatted_rows = []
+    for row in rows:
+        formatted_rows.append([
+            row[0],  # beatmap_name
+            row[1] or 'NM',  # mod_combination
+            row[2] or 'NM',  # mods (mod_group)
+            row[3],  # stars
+            row[4],  # effective_stars
+            f"{row[5]*100:.2f}%" if row[5] else "0%",  # accuracy as percentage
+            'Yes' if row[6] else 'No',  # is_fc
+            row[7].strftime('%Y-%m-%d %H:%M:%S') if row[7] else ''  # timestamp
+        ])
+    cw.writerows(formatted_rows)
     
     output = make_response(si.getvalue())
     output.headers["Content-Disposition"] = "attachment; filename=osu_tracker_export.csv"
@@ -537,13 +552,22 @@ def reset_history():
     cur = conn.cursor()
     
     user_id = session['user_id']
+    # Delete goal contributions first (due to foreign key)
+    cur.execute("""
+        DELETE FROM goal_contributions 
+        WHERE user_id = %s
+    """, (user_id,))
     cur.execute("DELETE FROM score_history WHERE user_id = %s", (user_id,))
     cur.execute("""
         UPDATE user_mastery 
         SET nm_rating=0, hd_rating=0, hr_rating=0, dt_rating=0, fl_rating=0 
         WHERE user_id = %s
     """, (user_id,))
-    cur.execute("UPDATE user_active_goals SET current_progress = 0, is_completed = FALSE WHERE user_id = %s", (user_id,))
+    cur.execute("""
+        UPDATE user_active_goals 
+        SET current_progress = 0, is_completed = FALSE, completed_at = NULL 
+        WHERE user_id = %s
+    """, (user_id,))
     
     conn.commit()
     cur.close()
@@ -752,11 +776,7 @@ def process_session_logic():
         cur.execute("""SELECT FLOOR(stars) as star_int, COUNT(*) FROM score_history WHERE user_id = %s AND is_fc = TRUE GROUP BY star_int ORDER BY star_int""", (session['user_id'],))
         fc_counts = {int(r[0]): r[1] for r in cur.fetchall()}
 
-        
-        cur.close()
-        conn.close()
-        
-        # Fetch persistent feed (last 100 scores) - we'll get rank from API if needed, for now use is_fc
+        # Fetch persistent feed (last 100 scores) - BEFORE closing connection
         cur.execute("""
             SELECT beatmap_name, mod_combination, stars, is_fc, timestamp
             FROM score_history 
@@ -772,6 +792,9 @@ def process_session_logic():
                 'stars': round(row[2], 2),
                 'is_fc': row[3]
             })
+        
+        cur.close()
+        conn.close()
         
         # V6: Return rich JSON payload
         return { 
