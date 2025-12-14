@@ -69,7 +69,7 @@
                         <span class="mod-badge mod-{{ mod|lower }}">{{ mod }}</span>
                         <span class="star-val" id="stat-{{ mod|lower }}">{{ "%.2f"|format(val) }}</span>
                         <span class="stars">
-                            {% for i in range(val|int) %}✦{% endfor %}
+                            {% for i in range(val|int)%}✦{% endfor%}
                             <span class="stars-dim">{% for i in range(11 - val|int) %}✧{% endfor %}</span>
                         </span>
                     </div>
