@@ -119,4 +119,41 @@
             });
     }
 
-    function refreshFCStatu
+    function refreshFCStatus() {
+        const btn = document.getElementById('refresh-fc-btn');
+        const icon = document.getElementById('refresh-fc-icon');
+        const statusDiv = document.getElementById('refresh-fc-status');
+        
+        if(btn.disabled) return;
+        
+        btn.disabled = true;
+        icon.classList.add('fa-spin');
+        statusDiv.style.display = 'block';
+        statusDiv.textContent = 'Refreshing FC status for all scores... This may take a few minutes.';
+        statusDiv.style.color = '#66ccff';
+        
+        fetch('/refresh_fc_status', { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+                if(data.status === 'success') {
+                    statusDiv.textContent = `Success! Updated ${data.updated} out of ${data.total_scores} scores. ${data.errors > 0 ? `(${data.errors} errors)` : ''}`;
+                    statusDiv.style.color = '#4caf50';
+                } else {
+                    statusDiv.textContent = 'Error: ' + (data.message || 'Failed to refresh');
+                    statusDiv.style.color = '#ff4444';
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                statusDiv.textContent = 'Error: Failed to refresh FC status';
+                statusDiv.style.color = '#ff4444';
+            })
+            .finally(() => {
+                btn.disabled = false;
+                icon.classList.remove('fa-spin');
+            });
+    }
+</script>
+
+</body>
+</html>
