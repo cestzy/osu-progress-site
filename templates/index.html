@@ -51,7 +51,7 @@
                 <span class="btn-icon"><i class="fa-solid fa-bolt"></i></span> <span id="sessionBtnText">Start Session</span>
             </button>
             
-            <button class="btn-pill icon-only" onclick="forceRefresh()" title="Force Check Scores">
+            <button class="btn-pill icon-only" onclick="forceRefresh(true)" title="Force Check Scores">
                 <i class="fa-solid fa-arrows-rotate" id="refreshIcon"></i>
             </button>
 
@@ -470,7 +470,7 @@
         
         if (newState) {
             startPolling();
-            forceRefresh();
+            forceRefresh(false); // Don't show notification on session start
             showToast("Session Started", "Tracking your plays...");
         } else {
             stopPolling();
@@ -500,16 +500,18 @@
 
     function startPolling() {
         if (pollInterval) clearInterval(pollInterval);
-        pollInterval = setInterval(forceRefresh, 15000);
+        pollInterval = setInterval(() => forceRefresh(false), 180000); // 3 minutes = 180000ms
     }
     function stopPolling() { if (pollInterval) clearInterval(pollInterval); }
 
-    function forceRefresh() {
+    function forceRefresh(showNotification = true) {
         const icon = document.getElementById('refreshIcon');
         if(icon) icon.classList.add('fa-spin');
         
-        // Show notification when refresh starts
-        showToast("Finding Scores", "Checking for new plays...");
+        // Show notification only when manually clicked
+        if(showNotification) {
+            showToast("Finding Scores", "Checking for new plays...");
+        }
         
         fetch('/check_scores', { method: 'POST' })
             .then(res => res.json())
