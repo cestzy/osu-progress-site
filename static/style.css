@@ -161,8 +161,8 @@ body {
 .mod-dt { background: #8844ff; }
 
 .star-val { font-family: monospace; color: var(--osu-blue); font-size: 13px; }
-.stars { color: var(--osu-pink); letter-spacing: 1px; font-size: 11px; }
-.stars-dim { color: #444; }
+.stars { color: var(--osu-pink); letter-spacing: 1px; font-size: 11px; display: inline-block; white-space: nowrap; }
+.stars-dim { color: #444; display: inline; letter-spacing: 1px; }
 
 .star-list-row {
     display: flex; justify-content: space-between;
@@ -268,7 +268,7 @@ body {
 
 /* --- TOAST --- */
 .toast-notification {
-    position: fixed; top: 20px; right: 20px; /* Top right like osu! lazer */
+    position: fixed; top: 80px; right: 20px; /* Lowered from navbar */
     background: #222; border: 1px solid #444; border-radius: 8px;
     display: flex; overflow: hidden; transform: translateX(400px); /* Slide in from right */
     opacity: 0; transition: 0.3s ease-out; z-index: 10000;

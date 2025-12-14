@@ -69,8 +69,7 @@
                         <span class="mod-badge mod-{{ mod|lower }}">{{ mod }}</span>
                         <span class="star-val" id="stat-{{ mod|lower }}">{{ "%.2f"|format(val) }}</span>
                         <span class="stars">
-                            {% for i in range(val|int)%}✦{% endfor%}
-                            <span class="stars-dim">{% for i in range(11 - val|int) %}✧{% endfor %}</span>
+                            {% for i in range(val|int)%}✦{% endfor%}<span class="stars-dim">{% for i in range(11 - val|int) %}✧{% endfor %}</span>
                         </span>
                     </div>
                     {% endfor %}
@@ -270,9 +269,9 @@
     </div>
 
     <div id="tab-completed" class="tab-content" style="display: none;">
-        <div class="panel-card glass-panel" style="max-width: 800px; margin: 0 auto;">
-            <div class="panel-header"><h3>Completed Goals</h3></div>
-            <div id="completed-goals-container" class="goals-list-container" style="padding: 20px;">
+        <div class="panel-card glass-panel" style="max-width: 800px; margin: 0 auto; margin-top: 0;">
+            <div class="panel-header" style="margin-top: 0;"><h3>Completed Goals</h3></div>
+            <div id="completed-goals-container" class="goals-list-container" style="padding: 20px; padding-top: 10px;">
                 {% if completed_goals %}
                     {% for goal in completed_goals %}
                     <div class="osu-goal-card completed" data-id="{{ goal.id }}" style="opacity: 0.8;">
