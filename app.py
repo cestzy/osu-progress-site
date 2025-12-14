@@ -620,6 +620,131 @@ def reset_history():
     conn.close()
     return redirect('/settings')
 
+@app.route('/refresh_fc_status', methods=['POST'])
+def refresh_fc_status():
+    """Refreshes FC status for all scores by re-fetching from API and recalculating"""
+    if 'user_id' not in session: 
+        return jsonify({'status': 'error', 'message': 'Not logged in'}), 401
+    
+    token = session.get('token')
+    if not token:
+        return jsonify({'status': 'error', 'message': 'Token expired'}), 401
+    
+    headers = {'Authorization': f'Bearer {token}'}
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # Get all scores for this user
+    cur.execute("""
+        SELECT id, osu_score_id, beatmap_id, max_combo 
+        FROM score_history 
+        WHERE user_id = %s
+        ORDER BY timestamp DESC
+    """, (session['user_id'],))
+    
+    scores_to_refresh = cur.fetchall()
+    total_scores = len(scores_to_refresh)
+    updated_count = 0
+    error_count = 0
+    
+    import time
+    
+    for idx, (score_history_id, osu_score_id, beatmap_id, stored_max_combo) in enumerate(scores_to_refresh):
+        try:
+            # Fetch score data from osu! API
+            score_response = requests.get(
+                f'https://osu.ppy.sh/api/v2/scores/{osu_score_id}',
+                headers=headers,
+                timeout=10
+            )
+            
+            if score_response.status_code != 200:
+                error_count += 1
+                continue
+            
+            score_data = score_response.json()
+            
+            # Get score statistics
+            statistics = score_data.get('statistics', {})
+            miss_count = statistics.get('miss_count', 0)
+            score_rank = score_data.get('rank', '')
+            score_max_combo = score_data.get('max_combo', 0)
+            
+            # Fetch beatmap data to get map_max_combo
+            if beatmap_id:
+                beatmap_response = requests.get(
+                    f'https://osu.ppy.sh/api/v2/beatmaps/{beatmap_id}',
+                    headers=headers,
+                    timeout=10
+                )
+                
+                if beatmap_response.status_code == 200:
+                    beatmap_data = beatmap_response.json()
+                    map_max_combo = beatmap_data.get('max_combo', 0)
+                else:
+                    map_max_combo = 0
+            else:
+                map_max_combo = 0
+            
+            # Recalculate FC status using the same logic as process_session_logic
+            is_fc = False
+            is_pfc = False
+            
+            if score_rank == 'F':
+                is_fc = False
+            elif miss_count > 0:
+                is_fc = False
+            elif score_rank in ['X', 'XH']:
+                is_fc = True
+            elif map_max_combo > 0:
+                combo_diff = map_max_combo - score_max_combo
+                
+                if combo_diff == 0:
+                    is_fc = True
+                    is_pfc = (miss_count == 0)
+                elif combo_diff < 0:
+                    is_fc = False
+                else:
+                    percentage_threshold = int(map_max_combo * 0.05)
+                    absolute_threshold = 50
+                    threshold = min(percentage_threshold, absolute_threshold)
+                    
+                    if combo_diff <= threshold:
+                        is_fc = True
+                    else:
+                        is_fc = False
+            else:
+                is_fc = False
+            
+            # Update the score in database
+            cur.execute("""
+                UPDATE score_history 
+                SET is_fc = %s, is_pfc = %s, max_combo = %s
+                WHERE id = %s
+            """, (is_fc, is_pfc, score_max_combo, score_history_id))
+            
+            updated_count += 1
+            
+            # Rate limiting: small delay to avoid hitting API limits
+            if (idx + 1) % 10 == 0:
+                time.sleep(0.5)  # Brief pause every 10 scores
+                
+        except Exception as e:
+            print(f"Error refreshing score {osu_score_id}: {e}")
+            error_count += 1
+            continue
+    
+    conn.commit()
+    cur.close()
+    conn.close()
+    
+    return jsonify({
+        'status': 'success',
+        'total_scores': total_scores,
+        'updated': updated_count,
+        'errors': error_count
+    })
+
 # --- SESSION ENGINE (V6 Logic) ---
 
 def process_session_logic():
