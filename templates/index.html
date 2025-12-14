@@ -727,8 +727,13 @@
             return;
         }
         
-        // Check if it's a URL with beatmap ID
-        const match = link.match(/beatmaps\/(\d+)/);
+        // Check if it's a URL with beatmap ID - handle both formats:
+        // 1. beatmaps/123456
+        // 2. beatmapsets/2455224#osu/5365588
+        let match = link.match(/beatmaps\/(\d+)/);
+        if(!match) {
+            match = link.match(/#osu\/(\d+)/);
+        }
         if(match) {
             const beatmapId = match[1];
             customBeatmapId = beatmapId;
@@ -835,8 +840,13 @@
             return;
         }
         
-        // Extract beatmap ID from URL
-        const match = link.match(/beatmaps\/(\d+)/);
+        // Extract beatmap ID from URL - handle both formats:
+        // 1. beatmaps/123456
+        // 2. beatmapsets/2455224#osu/5365588
+        let match = link.match(/beatmaps\/(\d+)/);
+        if(!match) {
+            match = link.match(/#osu\/(\d+)/);
+        }
         if(match) {
             const beatmapId = match[1];
             customBeatmapId = beatmapId;
@@ -902,7 +912,12 @@
         const useCombo = document.getElementById('use-combo').checked;
         const combo = document.getElementById('goal-combo').value || 0;
         const beatmapLink = document.getElementById('goal-beatmap-link').value.trim();
-        const beatmapId = beatmapLink.match(/beatmaps\/(\d+)/) ? beatmapLink.match(/beatmaps\/(\d+)/)[1] : customBeatmapId;
+        // Extract beatmap ID - handle both URL formats
+        let beatmapIdMatch = beatmapLink.match(/beatmaps\/(\d+)/);
+        if(!beatmapIdMatch) {
+            beatmapIdMatch = beatmapLink.match(/#osu\/(\d+)/);
+        }
+        const beatmapId = beatmapIdMatch ? beatmapIdMatch[1] : customBeatmapId;
         
         let textParts = [];
         
@@ -991,7 +1006,12 @@
         showToast("Creating Goal", "Please wait...");
         
         const beatmapLink = document.getElementById('goal-beatmap-link').value.trim();
-        const beatmapId = beatmapLink.match(/beatmaps\/(\d+)/) ? beatmapLink.match(/beatmaps\/(\d+)/)[1] : customBeatmapId;
+        // Extract beatmap ID - handle both URL formats
+        let beatmapIdMatch = beatmapLink.match(/beatmaps\/(\d+)/);
+        if(!beatmapIdMatch) {
+            beatmapIdMatch = beatmapLink.match(/#osu\/(\d+)/);
+        }
+        const beatmapId = beatmapIdMatch ? beatmapIdMatch[1] : customBeatmapId;
         const nameDisplay = document.getElementById('beatmap-name-display');
         const beatmapName = customBeatmapName || (beatmapId ? (nameDisplay.dataset.beatmapName || nameDisplay.textContent.replace('Beatmap ID: ', '').replace('Loading beatmap name...', '').replace('Error: ', '')) : null);
         
