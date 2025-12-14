@@ -79,7 +79,7 @@
                 <div class="star-list-container">
                     <div class="panel-sub-header" style="margin-top: 20px;">Total FCs</div>
                     <div class="star-text-list">
-                        {% for i in range(1, 9) %}
+                        {% for i in range(1, 11) %}
                         <div class="star-list-row">
                             <span class="star-label">{{ i }} Star FC:</span>
                             <span class="star-count" id="fc-{{ i }}">{{ star_data.get(i, 0) }}</span>
@@ -113,9 +113,12 @@
                                     {% if goal.criteria.mod != 'Any' %}<span class="goal-type-badge" style="background:#555">{{ goal.criteria.mod }}</span>{% endif %}
                                 </div>
                                 
-                                <div class="goal-menu-container" style="position: relative;" onclick="event.stopPropagation();">
+                                    <div class="goal-menu-container" style="position: relative;" onclick="event.stopPropagation();">
                                     <i class="fa-solid fa-ellipsis-vertical menu-dots" onclick="toggleGoalMenu('{{ goal.id }}')"></i>
                                     <div class="goal-dropdown" id="menu-{{ goal.id }}">
+                                        <div onclick="updateGoalStatus('{{ goal.id }}', 'pin')">
+                                            <i class="fa-solid fa-thumbtack"></i> Pin Goal
+                                        </div>
                                         <div onclick="updateGoalStatus('{{ goal.id }}', '{{ 'unlock' if goal.is_locked else 'lock' }}')">
                                             <i class="fa-solid {{ 'fa-lock-open' if goal.is_locked else 'fa-lock' }}"></i> 
                                             {{ 'Unlock Position' if goal.is_locked else 'Lock Position' }}
@@ -177,9 +180,13 @@
                 </div>
 
                 <div class="form-group">
-                    <label>Beatmap Link (Optional)</label>
-                    <input type="text" id="goal-beatmap-link" placeholder="https://osu.ppy.sh/beatmaps/123456" class="input-dark" oninput="parseBeatmapLink()">
-                    <small style="color: #888; font-size: 11px;">Paste osu! beatmap URL to create a specific map goal</small>
+                    <label>Beatmap Link or Name (Optional)</label>
+                    <div style="display: flex; gap: 10px; align-items: flex-end;">
+                        <input type="text" id="goal-beatmap-link" placeholder="https://osu.ppy.sh/beatmaps/123456 or SPUTNIK-3 by II-L" class="input-dark" style="flex: 1;" oninput="parseBeatmapLink()">
+                        <button class="btn-pill" onclick="loadBeatmapInPreview()" style="padding: 8px 15px; white-space: nowrap;">Load in Beatmap</button>
+                        <button class="btn-pill" onclick="removeBeatmapFromPreview()" style="padding: 8px 15px; white-space: nowrap; background: #555; display: none;" id="remove-beatmap-btn">Remove Beatmap</button>
+                    </div>
+                    <small style="color: #888; font-size: 11px;">Paste osu! beatmap URL or enter beatmap name to create a specific map goal</small>
                 </div>
                 
                 <div id="beatmap-info" style="display: none; background: rgba(255,255,255,0.05); padding: 10px; border-radius: 5px; margin: 10px 0;">
@@ -274,6 +281,18 @@
                                 <span class="goal-type-badge">{{ goal.type }}</span>
                                 {% if goal.criteria.mod != 'Any' %}<span class="goal-type-badge" style="background:#555">{{ goal.criteria.mod }}</span>{% endif %}
                                 <span class="goal-type-badge" style="background:#4caf50;">✓ Completed</span>
+                            </div>
+                            
+                            <div class="goal-menu-container" style="position: relative;" onclick="event.stopPropagation();">
+                                <i class="fa-solid fa-ellipsis-vertical menu-dots" onclick="toggleGoalMenu('completed-{{ goal.id }}')"></i>
+                                <div class="goal-dropdown" id="menu-completed-{{ goal.id }}">
+                                    <div onclick="updateGoalStatus('{{ goal.id }}', 'pin-completed')">
+                                        <i class="fa-solid fa-thumbtack"></i> Pin to Top
+                                    </div>
+                                    <div class="delete-opt" onclick="updateGoalStatus('{{ goal.id }}', 'delete-completed')">
+                                        <i class="fa-solid fa-trash"></i> Delete
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         <div class="goal-title">{{ goal.title }}</div>
@@ -490,6 +509,9 @@
         const icon = document.getElementById('refreshIcon');
         if(icon) icon.classList.add('fa-spin');
         
+        // Show notification when refresh starts
+        showToast("Finding Scores", "Checking for new plays...");
+        
         fetch('/check_scores', { method: 'POST' })
             .then(res => res.json())
             .then(data => {
@@ -511,7 +533,7 @@
                     });
 
                     // 3. Update FCs
-                    for(let i=1; i<=8; i++) {
+                    for(let i=1; i<=10; i++) {
                         const el = document.getElementById('fc-'+i);
                         if(el) el.innerText = data.fc_counts[i] || 0;
                     }
@@ -522,10 +544,10 @@
             })
             .catch(error => { console.error("Error fetching scores:", error); })
             .finally(() => { 
-                // Remove spin after a brief delay to show rotation
+                // Remove spin after 2 seconds
                 setTimeout(() => {
                     if(icon) icon.classList.remove('fa-spin');
-                }, 500);
+                }, 2000);
             });
     }
     
@@ -693,25 +715,38 @@
         updateSentencePreview();
     }
     
-    function parseBeatmapLink() {
-        const link = document.getElementById('goal-beatmap-link').value;
-        const infoDiv = document.getElementById('beatmap-info');
-        const nameDisplay = document.getElementById('beatmap-name-display');
-        const idDisplay = document.getElementById('beatmap-id-display');
+    let customBeatmapName = null;
+    let customBeatmapId = null;
+    
+    function loadBeatmapInPreview() {
+        const link = document.getElementById('goal-beatmap-link').value.trim();
+        const removeBtn = document.getElementById('remove-beatmap-btn');
+        const countInput = document.getElementById('goal-count');
         
         if(!link) {
-            infoDiv.style.display = 'none';
-            updateSentencePreview();
+            showToast("Error", "Please enter a beatmap link or name");
             return;
         }
         
-        // Extract beatmap ID from URL
+        // Check if it's a URL with beatmap ID
         const match = link.match(/beatmaps\/(\d+)/);
         if(match) {
             const beatmapId = match[1];
+            customBeatmapId = beatmapId;
+            
+            const infoDiv = document.getElementById('beatmap-info');
+            const nameDisplay = document.getElementById('beatmap-name-display');
+            const idDisplay = document.getElementById('beatmap-id-display');
+            
             idDisplay.textContent = `Beatmap ID: ${beatmapId}`;
             nameDisplay.textContent = 'Loading beatmap name...';
             infoDiv.style.display = 'block';
+            
+            // Disable count input since custom beatmap means count is always 1
+            if(countInput) {
+                countInput.disabled = true;
+                countInput.value = 1;
+            }
             
             // Fetch beatmap info from API
             fetch('/get_beatmap_info', {
@@ -724,23 +759,133 @@
                 if(data.error) {
                     nameDisplay.textContent = `Error: ${data.error}`;
                     nameDisplay.style.color = '#ff4444';
+                    customBeatmapName = null;
                 } else {
-                    nameDisplay.textContent = data.full_name || data.title || `Beatmap ID: ${beatmapId}`;
+                    customBeatmapName = data.full_name || data.title;
+                    nameDisplay.textContent = customBeatmapName;
                     nameDisplay.style.color = '#fff';
-                    // Store beatmap name for later use
-                    nameDisplay.dataset.beatmapName = data.full_name || data.title;
+                    nameDisplay.dataset.beatmapName = customBeatmapName;
                     nameDisplay.dataset.beatmapId = beatmapId;
                 }
+                removeBtn.style.display = 'inline-flex';
                 updateSentencePreview();
             })
             .catch(error => {
                 console.error("Error fetching beatmap:", error);
                 nameDisplay.textContent = `Error loading beatmap`;
                 nameDisplay.style.color = '#ff4444';
+                customBeatmapName = null;
+                updateSentencePreview();
+            });
+        } else {
+            // It's a custom name, use it directly
+            customBeatmapName = link;
+            customBeatmapId = null;
+            
+            const infoDiv = document.getElementById('beatmap-info');
+            const nameDisplay = document.getElementById('beatmap-name-display');
+            const idDisplay = document.getElementById('beatmap-id-display');
+            
+            nameDisplay.textContent = link;
+            nameDisplay.style.color = '#fff';
+            idDisplay.textContent = 'Custom beatmap name';
+            infoDiv.style.display = 'block';
+            removeBtn.style.display = 'inline-flex';
+            
+            // Disable count input since custom beatmap means count is always 1
+            if(countInput) {
+                countInput.disabled = true;
+                countInput.value = 1;
+            }
+            
+            updateSentencePreview();
+        }
+    }
+    
+    function removeBeatmapFromPreview() {
+        customBeatmapName = null;
+        customBeatmapId = null;
+        document.getElementById('goal-beatmap-link').value = '';
+        document.getElementById('beatmap-info').style.display = 'none';
+        document.getElementById('remove-beatmap-btn').style.display = 'none';
+        
+        // Re-enable count input
+        const countInput = document.getElementById('goal-count');
+        if(countInput) {
+            countInput.disabled = false;
+        }
+        
+        updateSentencePreview();
+    }
+    
+    function parseBeatmapLink() {
+        const link = document.getElementById('goal-beatmap-link').value.trim();
+        const infoDiv = document.getElementById('beatmap-info');
+        const nameDisplay = document.getElementById('beatmap-name-display');
+        const idDisplay = document.getElementById('beatmap-id-display');
+        const countInput = document.getElementById('goal-count');
+        const removeBtn = document.getElementById('remove-beatmap-btn');
+        
+        if(!link) {
+            infoDiv.style.display = 'none';
+            customBeatmapName = null;
+            customBeatmapId = null;
+            if(removeBtn) removeBtn.style.display = 'none';
+            if(countInput) countInput.disabled = false;
+            updateSentencePreview();
+            return;
+        }
+        
+        // Extract beatmap ID from URL
+        const match = link.match(/beatmaps\/(\d+)/);
+        if(match) {
+            const beatmapId = match[1];
+            customBeatmapId = beatmapId;
+            idDisplay.textContent = `Beatmap ID: ${beatmapId}`;
+            nameDisplay.textContent = 'Loading beatmap name...';
+            infoDiv.style.display = 'block';
+            
+            // Disable count input since custom beatmap means count is always 1
+            if(countInput) {
+                countInput.disabled = true;
+                countInput.value = 1;
+            }
+            
+            // Fetch beatmap info from API
+            fetch('/get_beatmap_info', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ beatmap_id: beatmapId })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if(data.error) {
+                    nameDisplay.textContent = `Error: ${data.error}`;
+                    nameDisplay.style.color = '#ff4444';
+                    customBeatmapName = null;
+                } else {
+                    customBeatmapName = data.full_name || data.title;
+                    nameDisplay.textContent = customBeatmapName;
+                    nameDisplay.style.color = '#fff';
+                    // Store beatmap name for later use
+                    nameDisplay.dataset.beatmapName = customBeatmapName;
+                    nameDisplay.dataset.beatmapId = beatmapId;
+                }
+                if(removeBtn) removeBtn.style.display = 'inline-flex';
+                updateSentencePreview();
+            })
+            .catch(error => {
+                console.error("Error fetching beatmap:", error);
+                nameDisplay.textContent = `Error loading beatmap`;
+                nameDisplay.style.color = '#ff4444';
+                customBeatmapName = null;
                 updateSentencePreview();
             });
         } else {
             infoDiv.style.display = 'none';
+            customBeatmapName = null;
+            customBeatmapId = null;
+            if(countInput) countInput.disabled = false;
         }
         updateSentencePreview();
     }
@@ -757,23 +902,37 @@
         const length = document.getElementById('goal-length').value || 0;
         const useCombo = document.getElementById('use-combo').checked;
         const combo = document.getElementById('goal-combo').value || 0;
-        const beatmapLink = document.getElementById('goal-beatmap-link').value;
-        const beatmapId = beatmapLink.match(/beatmaps\/(\d+)/) ? beatmapLink.match(/beatmaps\/(\d+)/)[1] : null;
+        const beatmapLink = document.getElementById('goal-beatmap-link').value.trim();
+        const beatmapId = beatmapLink.match(/beatmaps\/(\d+)/) ? beatmapLink.match(/beatmaps\/(\d+)/)[1] : customBeatmapId;
         
         let textParts = [];
         
-        // If specific beatmap, format as "FC [name]"
-        if(beatmapId) {
-            const nameDisplay = document.getElementById('beatmap-name-display');
-            let beatmapName = nameDisplay.dataset.beatmapName || nameDisplay.textContent.replace('Beatmap ID: ', '').replace('Loading beatmap name...', '').replace('Error: ', '') || 'this map';
-            if(beatmapName.includes('Beatmap ID:')) beatmapName = 'this map';
+        // If specific beatmap (either from URL or custom name), format as "FC [name]"
+        if(customBeatmapName || beatmapId) {
+            let beatmapName = customBeatmapName;
+            if(!beatmapName && beatmapId) {
+                const nameDisplay = document.getElementById('beatmap-name-display');
+                beatmapName = nameDisplay.dataset.beatmapName || nameDisplay.textContent.replace('Beatmap ID: ', '').replace('Loading beatmap name...', '').replace('Error: ', '') || 'this map';
+                if(beatmapName.includes('Beatmap ID:') || beatmapName.includes('Error:')) beatmapName = 'this map';
+            }
             
-            if(type === 'fc') {
-                textParts.push(`FC ${beatmapName}`);
-            } else if(type === 's') {
-                textParts.push(`S Rank ${beatmapName}`);
+            if(beatmapName) {
+                if(type === 'fc') {
+                    textParts.push(`FC ${beatmapName}`);
+                } else if(type === 's') {
+                    textParts.push(`S Rank ${beatmapName}`);
+                } else {
+                    textParts.push(`${type.toUpperCase()} ${beatmapName}`);
+                }
             } else {
-                textParts.push(`${type.toUpperCase()} ${beatmapName}`);
+                // Fallback if name not loaded yet
+                if(type === 'fc') {
+                    textParts.push(`FC this map`);
+                } else if(type === 's') {
+                    textParts.push(`S Rank this map`);
+                } else {
+                    textParts.push(`${type.toUpperCase()} this map`);
+                }
             }
         } else {
             // Base phrase
@@ -792,8 +951,8 @@
             textParts.push(`with NM`);
         }
 
-        // Star requirement
-        if(useStars && parseFloat(stars) > 0 && !beatmapId) {
+        // Star requirement (don't show count if custom beatmap is selected)
+        if(useStars && parseFloat(stars) > 0 && !customBeatmapName && !beatmapId) {
             textParts.push(`on maps ${stars}★ or higher`); 
         }
 
@@ -832,16 +991,16 @@
         // Show loading notification
         showToast("Creating Goal", "Please wait...");
         
-        const beatmapLink = document.getElementById('goal-beatmap-link').value;
-        const beatmapId = beatmapLink.match(/beatmaps\/(\d+)/) ? beatmapLink.match(/beatmaps\/(\d+)/)[1] : null;
+        const beatmapLink = document.getElementById('goal-beatmap-link').value.trim();
+        const beatmapId = beatmapLink.match(/beatmaps\/(\d+)/) ? beatmapLink.match(/beatmaps\/(\d+)/)[1] : customBeatmapId;
         const nameDisplay = document.getElementById('beatmap-name-display');
-        const beatmapName = beatmapId ? (nameDisplay.dataset.beatmapName || nameDisplay.textContent.replace('Beatmap ID: ', '').replace('Loading beatmap name...', '').replace('Error: ', '')) : null;
+        const beatmapName = customBeatmapName || (beatmapId ? (nameDisplay.dataset.beatmapName || nameDisplay.textContent.replace('Beatmap ID: ', '').replace('Loading beatmap name...', '').replace('Error: ', '')) : null);
         
         const modCombo = document.getElementById('goal-mod-combo').value || 'Any';
         
         const payload = {
             type: type,
-            count_needed: count,
+            count_needed: customBeatmapName || beatmapId ? 1 : count,  // If custom beatmap, count is always 1
             use_stars: document.getElementById('use-stars').checked,
             target_stars: document.getElementById('goal-stars').value,
             required_mod: 'Any',  // Not used anymore, but keeping for backward compatibility
@@ -849,8 +1008,8 @@
             accuracy_needed: document.getElementById('goal-acc').value,
             use_mod_combo: true,  // Always true now since we use checkboxes
             mod_combination: modCombo,
-            beatmap_id: beatmapId,
-            beatmap_name: beatmapName,
+            beatmap_id: beatmapId || null,
+            beatmap_name: beatmapName || null,
             use_length: document.getElementById('use-length').checked,
             map_length: document.getElementById('goal-length').value || 0,
             use_combo: document.getElementById('use-combo').checked,

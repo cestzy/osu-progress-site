@@ -254,10 +254,10 @@ def home():
 
         # 6. Fetch Completed Goals
         cur.execute("""
-            SELECT id, title, current_progress, target_progress, criteria, COALESCE(completed_at, assigned_at) as completed_at
+            SELECT id, title, current_progress, target_progress, criteria, COALESCE(completed_at, assigned_at) as completed_at, display_order
             FROM user_active_goals 
             WHERE user_id = %s AND is_completed = TRUE
-            ORDER BY COALESCE(completed_at, assigned_at) DESC
+            ORDER BY display_order ASC, COALESCE(completed_at, assigned_at) DESC
         """, (session['user_id'],))
         completed_rows = cur.fetchall()
         
@@ -403,12 +403,14 @@ def update_goal_status():
     
     data = request.json
     goal_id = data.get('goal_id')
-    action = data.get('action') # 'delete', 'lock', 'unlock', 'pause', 'unpause'
+    action = data.get('action') # 'delete', 'lock', 'unlock', 'pause', 'unpause', 'pin', 'pin-completed', 'delete-completed'
     
     conn = get_db_connection()
     cur = conn.cursor()
     
     if action == 'delete':
+        cur.execute("DELETE FROM user_active_goals WHERE id = %s AND user_id = %s", (goal_id, session['user_id']))
+    elif action == 'delete-completed':
         cur.execute("DELETE FROM user_active_goals WHERE id = %s AND user_id = %s", (goal_id, session['user_id']))
     elif action == 'lock':
         cur.execute("UPDATE user_active_goals SET is_locked = TRUE WHERE id = %s AND user_id = %s", (goal_id, session['user_id']))
@@ -418,6 +420,15 @@ def update_goal_status():
         cur.execute("UPDATE user_active_goals SET is_paused = TRUE WHERE id = %s AND user_id = %s", (goal_id, session['user_id']))
     elif action == 'unpause':
         cur.execute("UPDATE user_active_goals SET is_paused = FALSE WHERE id = %s AND user_id = %s", (goal_id, session['user_id']))
+    elif action == 'pin' or action == 'pin-completed':
+        # Pin goal to top by setting display_order to minimum value - 1
+        cur.execute("SELECT MIN(display_order) FROM user_active_goals WHERE user_id = %s", (session['user_id'],))
+        min_order = cur.fetchone()[0]
+        if min_order is None:
+            min_order = 0
+        # Set this goal's order to min - 1 (or -1 if min is already negative)
+        new_order = min_order - 1
+        cur.execute("UPDATE user_active_goals SET display_order = %s WHERE id = %s AND user_id = %s", (new_order, goal_id, session['user_id']))
 
     conn.commit()
     cur.close()
