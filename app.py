@@ -157,7 +157,7 @@ def home():
         conn = get_db_connection()
         cur = conn.cursor()
 
-        # 1. Fetch User Info and refresh rank from API
+        # 1. get user info
         token = session.get('token')
         if token:
             try:
@@ -166,7 +166,7 @@ def home():
                 if user_response.status_code == 200:
                     user_data = user_response.json()
                     current_rank = user_data['statistics'].get('global_rank') or 0
-                    # Update rank in database
+                    # update rank in database
                     cur.execute("UPDATE osu_users SET global_rank = %s WHERE user_id = %s", (current_rank, session['user_id']))
                     conn.commit()
                 else:
@@ -326,7 +326,7 @@ def add_goal():
 
         # V6: New Mod Field - now always uses mod combination from checkboxes
         use_mod_combo = data.get('use_mod_combo', True)  # Default to True since we always use checkboxes now
-        mod_combination = data.get('mod_combination', 'NM')  # Default to NM if not provided
+        mod_combination = data.get('mod_combination', 'Any')  # Default to 'Any' if not provided
         beatmap_id = data.get('beatmap_id', None)
         beatmap_name = data.get('beatmap_name', None)
         use_length = data.get('use_length', False)
@@ -348,7 +348,7 @@ def add_goal():
             "type": goal_type,
             "min_stars": min_stars if use_stars else 0,  # Only enforce if checkbox is checked
             "mod": 'Any',  # Not used anymore, always use mod_combination
-            "mod_combination": mod_combination if mod_combination else 'NM',  # Always set, default to NM
+            "mod_combination": mod_combination if mod_combination else 'Any',  # Always set, default to 'Any'
             "use_acc": use_acc,
             "acc_needed": acc_needed,
             "beatmap_id": int(beatmap_id) if beatmap_id else None,
@@ -463,6 +463,39 @@ def get_goal_maps():
     cur.close()
     conn.close()
     return jsonify({'maps': maps})
+
+@app.route('/get_beatmap_info', methods=['POST'])
+def get_beatmap_info():
+    """Fetches beatmap information from osu! API"""
+    if 'user_id' not in session: return jsonify({'error': 'Unauthorized'}), 401
+    
+    data = request.json
+    beatmap_id = data.get('beatmap_id')
+    
+    if not beatmap_id:
+        return jsonify({'error': 'Beatmap ID required'}), 400
+    
+    token = session.get('token')
+    if not token:
+        return jsonify({'error': 'Token expired'}), 401
+    
+    try:
+        headers = {'Authorization': f'Bearer {token}'}
+        response = requests.get(f'https://osu.ppy.sh/api/v2/beatmaps/{beatmap_id}', headers=headers)
+        
+        if response.status_code == 200:
+            beatmap_data = response.json()
+            return jsonify({
+                'id': beatmap_data.get('id'),
+                'title': beatmap_data.get('beatmapset', {}).get('title', 'Unknown'),
+                'artist': beatmap_data.get('beatmapset', {}).get('artist', 'Unknown'),
+                'version': beatmap_data.get('version', 'Unknown'),
+                'full_name': f"{beatmap_data.get('beatmapset', {}).get('artist', 'Unknown')} - {beatmap_data.get('beatmapset', {}).get('title', 'Unknown')} [{beatmap_data.get('version', 'Unknown')}]"
+            })
+        else:
+            return jsonify({'error': 'Beatmap not found'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 # --- DATA MANAGEMENT ---
 
@@ -611,9 +644,32 @@ def process_session_logic():
             
             beatmap = score['beatmap']
             beatmapset = score['beatmapset']
-            stars = beatmap['difficulty_rating']
+            base_stars = beatmap['difficulty_rating']
             acc = score['accuracy']
             raw_mods = score['mods']
+            
+            # Calculate star rating with mods applied (EZ, HR, DT, NC, FL affect stars, HD does not)
+            # Standard osu! mod multipliers:
+            # EZ: 0.5x, HR: 1.4x, DT/NC: 1.2x, FL: ~1.12x, HD: no change
+            stars = base_stars
+            if isinstance(raw_mods, list):
+                if 'EZ' in raw_mods:
+                    stars *= 0.5
+                if 'HR' in raw_mods:
+                    stars *= 1.4
+                if 'DT' in raw_mods or 'NC' in raw_mods:
+                    stars *= 1.2
+                if 'FL' in raw_mods:
+                    stars *= 1.12
+            elif isinstance(raw_mods, str):
+                if 'EZ' in raw_mods:
+                    stars *= 0.5
+                if 'HR' in raw_mods:
+                    stars *= 1.4
+                if 'DT' in raw_mods or 'NC' in raw_mods:
+                    stars *= 1.2
+                if 'FL' in raw_mods:
+                    stars *= 1.12
             
             # Convert mods array to string combination (e.g., ["HD", "DT"] -> "HDDT")
             # Sort mods alphabetically for consistent matching (HDDT, HRHD, etc.)
@@ -659,7 +715,7 @@ def process_session_logic():
             # This differs from the game client and website's display.
             #
             # The challenge: Distinguishing dropped slider ends from slider breaks
-            # - Dropped slider ends: combo is close to map max (e.g., 370/371, 1130/1159) = FC
+            # - Dropped slider ends: combo is close to map max (e.g., 370/371, 1130/1159, 2362/2366) = FC
             # - Slider break: combo is significantly lower (e.g., 183/442) = NOT FC
             #
             # Algorithm:
@@ -672,8 +728,8 @@ def process_session_logic():
             # 4. If map_max_combo unavailable = Only SS rank can be FC (conservative)
             #
             # Threshold: Use percentage-based approach with reasonable limits
-            # Examples: 370/371 (0.27% off) = FC, 1130/1159 (2.5% off) = FC
-            # Use 3% or 30 combo, whichever is smaller, to account for larger maps
+            # Examples: 370/371 (0.27% off) = FC, 1130/1159 (2.5% off) = FC, 2362/2366 (0.17% off) = FC
+            # Use 5% or 50 combo, whichever is smaller, to account for larger maps and edge cases
             # But be strict: 183/442 (58% off) = NOT FC (slider break)
             
             is_fc = False
@@ -697,11 +753,11 @@ def process_session_logic():
                     # Player combo exceeds map max (shouldn't happen, but be safe)
                     is_fc = False
                 else:
-                    # Calculate threshold: 3% of map max combo, or 30 combo, whichever is smaller
-                    # This handles cases like 370/371 (1 off) and 1130/1159 (29 off)
+                    # Calculate threshold: 5% of map max combo, or 50 combo, whichever is smaller
+                    # This handles cases like 370/371 (1 off), 1130/1159 (29 off), and 2362/2366 (4 off)
                     # But rejects cases like 183/442 (259 off, 58% difference)
-                    percentage_threshold = int(map_max_combo * 0.03)
-                    absolute_threshold = 30
+                    percentage_threshold = int(map_max_combo * 0.05)
+                    absolute_threshold = 50
                     threshold = min(percentage_threshold, absolute_threshold)
                     
                     if combo_diff <= threshold:
@@ -740,15 +796,18 @@ def process_session_logic():
                 
                 # Mod Check - support both single mod and mod combination
                 # Priority: mod_combination > mod
+                # 'Any' means any mod combination is acceptable
                 req_mod_combination = g_criteria.get('mod_combination', None)
                 req_mod = g_criteria.get('mod', 'Any')
                 
+                # If mod_combination is 'Any' or None, skip mod check
                 if req_mod_combination and req_mod_combination != 'Any' and req_mod_combination:
                     # Check if mod combination matches exactly (case-sensitive)
                     if mod_combination != req_mod_combination: continue
                 elif req_mod != 'Any' and req_mod:
                     # Single mod check - must match mod_group
                     if req_mod != mod_group: continue
+                # If both are 'Any' or None, any mod combination passes
 
                 # Map-specific goal check (must match exactly)
                 req_beatmap_id = g_criteria.get('beatmap_id', None)
@@ -780,6 +839,10 @@ def process_session_logic():
                     success = is_fc # Use osu! FC logic (SS rank or combo matches map max)
                 elif req_type == 'ss':
                     if score['rank'] in ['X', 'XH']:
+                        success = True
+                elif req_type == 's':
+                    # S rank goal: matches both S rank FC and S rank with slider break
+                    if score['rank'] in ['S', 'SH']:
                         success = True
                 elif req_type == 'count':
                      success = True

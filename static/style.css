@@ -102,7 +102,9 @@ body {
 .dropdown-menu {
     position: absolute; top: 50px; right: 0;
     background: #1a1a1a; border: 1px solid #333;
-    border-radius: 8px; width: 140px; display: none; z-index: 100;
+    border-radius: 8px; width: 140px; display: none; 
+    z-index: 10001 !important; /* Ensure it's on top of everything */
+    box-shadow: 0 5px 15px rgba(0,0,0,0.5);
 }
 .dropdown-menu.show { display: block; }
 .dropdown-item { padding: 10px 15px; display: block; color: #ddd; text-decoration: none; font-size: 13px; cursor: pointer; }
@@ -258,12 +260,14 @@ body {
 
 /* --- TOAST --- */
 .toast-notification {
-    position: fixed; bottom: 30px; right: 30px;
+    position: fixed; top: 20px; right: 20px; /* Top right like osu! lazer */
     background: #222; border: 1px solid #444; border-radius: 8px;
-    display: flex; overflow: hidden; transform: translateY(100px);
-    opacity: 0; transition: 0.3s; z-index: 1000;
+    display: flex; overflow: hidden; transform: translateX(400px); /* Slide in from right */
+    opacity: 0; transition: 0.3s ease-out; z-index: 10000;
+    min-width: 300px; max-width: 400px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
 }
-.toast-notification.visible { transform: translateY(0); opacity: 1; }
+.toast-notification.visible { transform: translateX(0); opacity: 1; }
 .toast-side-accent { width: 5px; background: var(--osu-pink); }
 .toast-content { padding: 10px 15px; }
 .toast-title { font-weight: bold; font-size: 13px; margin-bottom: 2px; color: var(--osu-pink); }

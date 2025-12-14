@@ -19,7 +19,7 @@
 </div>
 
 <div class="navbar glass-panel">
-    <div class="nav-brand">osu! tracker</div>
+    <div class="nav-brand">osu! goals</div>
     
     <div class="nav-tabs">
         <div class="nav-tab active" onclick="switchTab('dashboard')">Dashboard</div>
@@ -35,7 +35,7 @@
         </div>
         <div class="profile-pic" style="background: url('{{ user.avatar_url }}') center/cover;"></div>
         
-        <div class="dropdown-menu" id="userDropdown" style="z-index: 10000; position: absolute;">
+        <div class="dropdown-menu" id="userDropdown">
             <a href="/settings" class="dropdown-item">Settings</a>
             <div class="dropdown-item text-danger" onclick="confirmLogout()">Logout</div>
         </div>
@@ -158,6 +158,7 @@
                         <option value="fc">Full Combo (FC)</option>
                         <option value="pass">Pass (Clear)</option>
                         <option value="ss">SS (Perfect)</option>
+                        <option value="s">S Rank</option>
                     </select>
                 </div>
 
@@ -190,6 +191,14 @@
                     <label>Mod Combination</label>
                     <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px;">
                         <div class="checkbox-wrapper" style="display: flex; align-items: center; gap: 5px;">
+                            <input type="checkbox" id="mod-any" value="Any" checked onchange="updateModCombination(event)">
+                            <label for="mod-any">Any</label>
+                        </div>
+                        <div class="checkbox-wrapper" style="display: flex; align-items: center; gap: 5px;">
+                            <input type="checkbox" id="mod-nm" value="NM" onchange="updateModCombination(event)">
+                            <label for="mod-nm">NM</label>
+                        </div>
+                        <div class="checkbox-wrapper" style="display: flex; align-items: center; gap: 5px;">
                             <input type="checkbox" id="mod-hd" value="HD" onchange="updateModCombination(event)">
                             <label for="mod-hd">HD</label>
                         </div>
@@ -214,8 +223,8 @@
                             <label for="mod-ez">EZ</label>
                         </div>
                     </div>
-                    <small style="color: #888; font-size: 11px; display: block; margin-top: 5px;">Select mods to combine. If none selected, NM (NoMod) will be applied.</small>
-                    <input type="hidden" id="goal-mod-combo" value="">
+                    <small style="color: #888; font-size: 11px; display: block; margin-top: 5px;">Select "Any" to accept any mod combination, or select specific mods. If none selected, "Any" is used.</small>
+                    <input type="hidden" id="goal-mod-combo" value="Any">
                 </div>
 
                 <div class="form-row" style="display: flex; gap: 15px;">
@@ -417,17 +426,14 @@
             startPolling();
         }
         if(document.getElementById('goal-type')) updateSentencePreview();
-        window.onclick = function(event) {
-            if (!event.target.matches('.menu-dots') && !event.target.closest('.osu-goal-card')) {
-                document.querySelectorAll('.goal-dropdown').forEach(d => d.style.display = 'none');
-            }
-        }
         // Ensure initial state is correct
         toggleStarInput();
         toggleLengthInput();
         toggleComboInput();
         if(document.getElementById('goal-mod-combo')) {
-            updateModCombination();  // Initialize mod combination
+            // Initialize mod combination - "Any" is checked by default
+            document.getElementById('goal-mod-combo').value = 'Any';
+            updateSentencePreview();
         }
         
         // Initialize goal pagination
@@ -602,11 +608,29 @@
     }
     
     function updateModCombination(event) {
+        const anyChecked = document.getElementById('mod-any').checked;
+        const nmChecked = document.getElementById('mod-nm').checked;
         const mods = ['HD', 'HR', 'DT', 'NC', 'FL', 'EZ'];
         const selectedMods = mods.filter(mod => {
             const checkbox = document.getElementById(`mod-${mod.toLowerCase()}`);
             return checkbox && checkbox.checked;
         });
+        
+        // If "Any" is checked, uncheck all specific mods
+        if (anyChecked && event && event.target.value === 'Any') {
+            document.getElementById('mod-nm').checked = false;
+            mods.forEach(mod => {
+                document.getElementById(`mod-${mod.toLowerCase()}`).checked = false;
+            });
+            document.getElementById('goal-mod-combo').value = 'Any';
+            updateSentencePreview();
+            return;
+        }
+        
+        // If a specific mod is checked, uncheck "Any"
+        if ((nmChecked || selectedMods.length > 0) && event && event.target.value !== 'Any') {
+            document.getElementById('mod-any').checked = false;
+        }
         
         // Check for opposing mods
         const hasEZ = selectedMods.includes('EZ');
@@ -630,7 +654,7 @@
                 return checkbox && checkbox.checked;
             });
             // Sort mods alphabetically for consistent matching
-            const modCombo = selectedMods2.length > 0 ? selectedMods2.sort().join('') : 'NM';
+            const modCombo = selectedMods2.length > 0 ? selectedMods2.sort().join('') : (nmChecked ? 'NM' : 'Any');
             document.getElementById('goal-mod-combo').value = modCombo;
             updateSentencePreview();
             return;
@@ -651,15 +675,20 @@
                 return checkbox && checkbox.checked;
             });
             // Sort mods alphabetically for consistent matching
-            const modCombo = selectedMods2.length > 0 ? selectedMods2.sort().join('') : 'NM';
+            const modCombo = selectedMods2.length > 0 ? selectedMods2.sort().join('') : (nmChecked ? 'NM' : 'Any');
             document.getElementById('goal-mod-combo').value = modCombo;
             updateSentencePreview();
             return;
         }
         
-        // If no mods selected, default to NM
-        // Sort mods alphabetically for consistent matching (matches backend sorting)
-        const modCombo = selectedMods.length > 0 ? selectedMods.sort().join('') : 'NM';
+        // Determine final mod combination
+        let modCombo = 'Any';
+        if (nmChecked && selectedMods.length === 0) {
+            modCombo = 'NM';
+        } else if (selectedMods.length > 0) {
+            modCombo = selectedMods.sort().join('');
+        }
+        
         document.getElementById('goal-mod-combo').value = modCombo;
         updateSentencePreview();
     }
@@ -684,10 +713,32 @@
             nameDisplay.textContent = 'Loading beatmap name...';
             infoDiv.style.display = 'block';
             
-            // Try to fetch beatmap name (would need API call, for now just show ID)
-            // For now, we'll let user enter name manually or fetch it
-            nameDisplay.textContent = `Beatmap ID: ${beatmapId}`;
-            updateSentencePreview();
+            // Fetch beatmap info from API
+            fetch('/get_beatmap_info', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ beatmap_id: beatmapId })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if(data.error) {
+                    nameDisplay.textContent = `Error: ${data.error}`;
+                    nameDisplay.style.color = '#ff4444';
+                } else {
+                    nameDisplay.textContent = data.full_name || data.title || `Beatmap ID: ${beatmapId}`;
+                    nameDisplay.style.color = '#fff';
+                    // Store beatmap name for later use
+                    nameDisplay.dataset.beatmapName = data.full_name || data.title;
+                    nameDisplay.dataset.beatmapId = beatmapId;
+                }
+                updateSentencePreview();
+            })
+            .catch(error => {
+                console.error("Error fetching beatmap:", error);
+                nameDisplay.textContent = `Error loading beatmap`;
+                nameDisplay.style.color = '#ff4444';
+                updateSentencePreview();
+            });
         } else {
             infoDiv.style.display = 'none';
         }
@@ -713,21 +764,30 @@
         
         // If specific beatmap, format as "FC [name]"
         if(beatmapId) {
-            const beatmapName = document.getElementById('beatmap-name-display').textContent.replace('Beatmap ID: ', '') || 'this map';
+            const nameDisplay = document.getElementById('beatmap-name-display');
+            let beatmapName = nameDisplay.dataset.beatmapName || nameDisplay.textContent.replace('Beatmap ID: ', '').replace('Loading beatmap name...', '').replace('Error: ', '') || 'this map';
+            if(beatmapName.includes('Beatmap ID:')) beatmapName = 'this map';
+            
             if(type === 'fc') {
                 textParts.push(`FC ${beatmapName}`);
+            } else if(type === 's') {
+                textParts.push(`S Rank ${beatmapName}`);
             } else {
                 textParts.push(`${type.toUpperCase()} ${beatmapName}`);
             }
         } else {
             // Base phrase
-            textParts.push(`${type.toUpperCase()} ${count} map${count>1?'s':''}`);
+            if(type === 's') {
+                textParts.push(`S Rank ${count} map${count>1?'s':''}`);
+            } else {
+                textParts.push(`${type.toUpperCase()} ${count} map${count>1?'s':''}`);
+            }
         }
 
-        // Mod combination (always show if not NM, or if NM and not a specific beatmap)
-        if(modCombo && modCombo !== 'NM') {
+        // Mod combination (show if not "Any")
+        if(modCombo && modCombo !== 'Any' && modCombo !== 'NM') {
             textParts.push(`with ${modCombo}`);
-        } else if(!beatmapId && modCombo === 'NM') {
+        } else if(modCombo === 'NM' && !beatmapId) {
             // Only show NM if not a specific beatmap goal
             textParts.push(`with NM`);
         }
@@ -769,11 +829,15 @@
             return;
         }
         
+        // Show loading notification
+        showToast("Creating Goal", "Please wait...");
+        
         const beatmapLink = document.getElementById('goal-beatmap-link').value;
         const beatmapId = beatmapLink.match(/beatmaps\/(\d+)/) ? beatmapLink.match(/beatmaps\/(\d+)/)[1] : null;
-        const beatmapName = beatmapId ? document.getElementById('beatmap-name-display').textContent.replace('Beatmap ID: ', '') : null;
+        const nameDisplay = document.getElementById('beatmap-name-display');
+        const beatmapName = beatmapId ? (nameDisplay.dataset.beatmapName || nameDisplay.textContent.replace('Beatmap ID: ', '').replace('Loading beatmap name...', '').replace('Error: ', '')) : null;
         
-        const modCombo = document.getElementById('goal-mod-combo').value || 'NM';
+        const modCombo = document.getElementById('goal-mod-combo').value || 'Any';
         
         const payload = {
             type: type,
@@ -804,8 +868,11 @@
             if(data.error) {
                 showToast("Error", data.error);
             } else {
-                switchTab('dashboard'); 
-                location.reload();
+                showToast("Success", "Goal created successfully!");
+                setTimeout(() => {
+                    switchTab('dashboard'); 
+                    location.reload();
+                }, 1000);
             }
         })
         .catch(error => {
@@ -842,7 +909,24 @@
             {% endif %}
         }
     }
-    function toggleDropdown() { document.getElementById('userDropdown').classList.toggle('show'); }
+    function toggleDropdown() { 
+        const dropdown = document.getElementById('userDropdown');
+        dropdown.classList.toggle('show'); 
+    }
+    
+    // Close dropdown when clicking outside
+    window.onclick = function(event) {
+        const dropdown = document.getElementById('userDropdown');
+        const profileSection = document.querySelector('.profile-section');
+        if (dropdown && !profileSection.contains(event.target)) {
+            dropdown.classList.remove('show');
+        }
+        // Also handle goal menus
+        if (!event.target.matches('.menu-dots') && !event.target.closest('.osu-goal-card')) {
+            document.querySelectorAll('.goal-dropdown').forEach(d => d.style.display = 'none');
+        }
+    }
+    
     function confirmLogout() { document.getElementById('warning-popup').style.display='flex'; }
     function closeWarning() { document.getElementById('warning-popup').style.display='none'; }
     function showToast(t,m) {
