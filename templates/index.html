@@ -70,7 +70,7 @@
                         <span class="star-val" id="stat-{{ mod|lower }}">{{ "%.2f"|format(val) }}</span>
                         <span class="stars">
                             {% for i in range(val|int) %}✦{% endfor %}
-                            <span class="stars-dim">{% for i in range(6 - val|int) %}✧{% endfor %}</span>
+                            <span class="stars-dim">{% for i in range(11 - val|int) %}✧{% endfor %}</span>
                         </span>
                     </div>
                     {% endfor %}
