@@ -477,7 +477,7 @@ def get_goal_maps():
 
 @app.route('/get_beatmap_info', methods=['POST'])
 def get_beatmap_info():
-    """Fetches beatmap information from osu! API"""
+    """Fetches beatmap information from osu! API - works for all maps including unranked/pending"""
     if 'user_id' not in session: return jsonify({'error': 'Unauthorized'}), 401
     
     data = request.json
@@ -492,19 +492,65 @@ def get_beatmap_info():
     
     try:
         headers = {'Authorization': f'Bearer {token}'}
-        response = requests.get(f'https://osu.ppy.sh/api/v2/beatmaps/{beatmap_id}', headers=headers)
+        
+        # Try to fetch beatmap directly
+        response = requests.get(f'https://osu.ppy.sh/api/v2/beatmaps/{beatmap_id}', headers=headers, timeout=10)
         
         if response.status_code == 200:
             beatmap_data = response.json()
+            beatmapset = beatmap_data.get('beatmapset', {})
+            
+            # Check if beatmapset data is available (might be None for unranked maps)
+            if beatmapset:
+                title = beatmapset.get('title', 'Unknown')
+                artist = beatmapset.get('artist', 'Unknown')
+                version = beatmap_data.get('version', 'Unknown')
+                full_name = f"{artist} - {title} [{version}]"
+            else:
+                # For unranked maps, beatmapset might be None, try to get basic info
+                version = beatmap_data.get('version', 'Unknown')
+                # Try to fetch beatmapset separately if we have the ID
+                beatmapset_id = beatmap_data.get('beatmapset_id')
+                if beatmapset_id:
+                    beatmapset_response = requests.get(
+                        f'https://osu.ppy.sh/api/v2/beatmapsets/{beatmapset_id}',
+                        headers=headers,
+                        timeout=10
+                    )
+                    if beatmapset_response.status_code == 200:
+                        beatmapset_data = beatmapset_response.json()
+                        title = beatmapset_data.get('title', 'Unknown')
+                        artist = beatmapset_data.get('artist', 'Unknown')
+                        full_name = f"{artist} - {title} [{version}]"
+                    else:
+                        full_name = f"Beatmap {beatmap_id} [{version}]"
+                else:
+                    full_name = f"Beatmap {beatmap_id} [{version}]"
+            
             return jsonify({
                 'id': beatmap_data.get('id'),
-                'title': beatmap_data.get('beatmapset', {}).get('title', 'Unknown'),
-                'artist': beatmap_data.get('beatmapset', {}).get('artist', 'Unknown'),
+                'title': beatmapset.get('title', 'Unknown') if beatmapset else 'Unknown',
+                'artist': beatmapset.get('artist', 'Unknown') if beatmapset else 'Unknown',
                 'version': beatmap_data.get('version', 'Unknown'),
-                'full_name': f"{beatmap_data.get('beatmapset', {}).get('artist', 'Unknown')} - {beatmap_data.get('beatmapset', {}).get('title', 'Unknown')} [{beatmap_data.get('version', 'Unknown')}]"
+                'full_name': full_name
             })
+        elif response.status_code == 404:
+            # Beatmap not found - might be deleted or invalid ID
+            return jsonify({'error': 'Beatmap not found. It may have been deleted or the ID is invalid.'}), 404
         else:
-            return jsonify({'error': 'Beatmap not found'}), 404
+            # Other error - try to get more info
+            error_msg = f'API returned status {response.status_code}'
+            try:
+                error_data = response.json()
+                if 'error' in error_data:
+                    error_msg = error_data['error']
+            except:
+                pass
+            return jsonify({'error': error_msg}), response.status_code
+    except requests.exceptions.Timeout:
+        return jsonify({'error': 'Request timed out. Please try again.'}), 504
+    except requests.exceptions.RequestException as e:
+        return jsonify({'error': f'Network error: {str(e)}'}), 500
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
