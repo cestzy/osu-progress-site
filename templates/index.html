@@ -937,6 +937,24 @@
         setTimeout(()=>toast.classList.remove('visible'), 4000);
     }
 
+    // --- GOAL MAPS MODAL CLICK HANDLING ---
+    document.addEventListener('DOMContentLoaded', () => {
+        const modal = document.getElementById('goalMapsModal');
+        if (!modal) return;
+
+        const content = modal.querySelector('.modal-content');
+
+        // Click outside modal content closes it
+        modal.addEventListener('click', () => {
+            closeGoalMapsModal();
+        });
+
+        // Click inside modal content does NOT close it
+        content.addEventListener('click', (e) => {
+            e.stopPropagation();
+        });
+    });
+
     // --- DRAG & DROP (PRESERVED) ---
     const draggables = document.querySelectorAll('.osu-goal-card');
     const container = document.getElementById('goalListDashboard');
