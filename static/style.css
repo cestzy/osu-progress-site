@@ -256,7 +256,7 @@ body {
 }
 
 .btn-create {
-    background: var(--osu-blue); color: #111; font-weight: bold; border: none;
+    background: var(--osu-pink); border: none; color: white;
     padding: 10px; border-radius: 6px; cursor: pointer; margin-top: 5px; font-size: 13px;
 }
 
