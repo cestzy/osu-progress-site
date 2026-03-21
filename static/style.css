@@ -260,6 +260,9 @@ body {
     padding: 8px 18px; border-radius: 50px; font-size: 13px; font-weight: bold;
     cursor: pointer; display: flex; align-items: center; gap: 8px;
     transition: 0.2s; font-family: inherit; text-decoration: none;
+    display: inline-flex;
+    margin: 0 auto;
+    width: max-content;
 }
 
 .btn-create:hover { transform: scale(1.05); }
