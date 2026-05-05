@@ -42,6 +42,19 @@
             <div id="refresh-fc-status" style="margin-top: 10px; color: #888; font-size: 12px; display: none;"></div>
         </div>
 
+        <div class="settings-group" style="margin-top: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <strong style="color: white;">Full Goal Resync</strong>
+                    <div style="color: #888; font-size: 12px;">Refreshes FC/PFC from osu! API and rebuilds incomplete goal progress from all stored scores.</div>
+                </div>
+                <button class="btn-pill" id="full-resync-btn" style="background: #9c27b0;" onclick="fullResyncGoals()">
+                    <i class="fa-solid fa-database" id="full-resync-icon"></i> Full Resync
+                </button>
+            </div>
+            <div id="full-resync-status" style="margin-top: 10px; color: #888; font-size: 12px; display: none;"></div>
+        </div>
+
         <hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.1); margin: 30px 0;">
 
         <div class="panel-header"><h3>Danger Zone</h3></div>
@@ -146,6 +159,48 @@
             .catch(error => {
                 console.error('Error:', error);
                 statusDiv.textContent = 'Error: Failed to refresh FC status';
+                statusDiv.style.color = '#ff4444';
+            })
+            .finally(() => {
+                btn.disabled = false;
+                icon.classList.remove('fa-spin');
+            });
+    }
+
+    function fullResyncGoals() {
+        const btn = document.getElementById('full-resync-btn');
+        const icon = document.getElementById('full-resync-icon');
+        const statusDiv = document.getElementById('full-resync-status');
+
+        if (btn.disabled) return;
+        if (!confirm('Run full goal resync? This can take several minutes for large histories.')) return;
+
+        btn.disabled = true;
+        icon.classList.add('fa-spin');
+        statusDiv.style.display = 'block';
+        statusDiv.textContent = 'Running full resync (refreshing scores and rebuilding active goals)...';
+        statusDiv.style.color = '#c58cff';
+
+        fetch('/full_resync_goals', { method: 'POST' })
+            .then(async (res) => {
+                const data = await res.json();
+                if (!res.ok) {
+                    throw new Error(data.message || `Request failed (${res.status})`);
+                }
+                return data;
+            })
+            .then((data) => {
+                if (data.status === 'success') {
+                    statusDiv.textContent = `Success! Updated ${data.updated_scores} scores, rebuilt ${data.goal_updates} active goals, and added ${data.goal_contributions} contributions.${data.errors > 0 ? ` (${data.errors} score errors)` : ''}`;
+                    statusDiv.style.color = '#4caf50';
+                } else {
+                    statusDiv.textContent = 'Error: ' + (data.message || 'Failed to run full resync');
+                    statusDiv.style.color = '#ff4444';
+                }
+            })
+            .catch((error) => {
+                console.error('Error:', error);
+                statusDiv.textContent = 'Error: ' + error.message;
                 statusDiv.style.color = '#ff4444';
             })
             .finally(() => {

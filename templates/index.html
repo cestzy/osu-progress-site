@@ -921,79 +921,66 @@
         }
         const beatmapId = beatmapIdMatch ? beatmapIdMatch[1] : customBeatmapId;
         
-        let textParts = [];
+        const formatGoalTypeLabel = (goalType, goalCount, specificMap) => {
+            if (goalType === 'fc') return specificMap ? 'Get an FC on' : `Get ${goalCount} FC${goalCount > 1 ? 's' : ''}`;
+            if (goalType === 's') return specificMap ? 'Get an S rank on' : `Get ${goalCount} S rank${goalCount > 1 ? 's' : ''}`;
+            if (goalType === 'ss') return specificMap ? 'Get an SS rank on' : `Get ${goalCount} SS rank${goalCount > 1 ? 's' : ''}`;
+            if (goalType === 'pass') return specificMap ? 'Pass' : `Pass ${goalCount} map${goalCount > 1 ? 's' : ''}`;
+            return specificMap ? 'Complete' : `Complete ${goalCount} map${goalCount > 1 ? 's' : ''}`;
+        };
+
+        const qualifiers = [];
+        let baseText = '';
+        const hasSpecificMap = !!(customBeatmapName || beatmapId);
         
         // If specific beatmap (either from URL or custom name), format as "FC [name]"
-        if(customBeatmapName || beatmapId) {
+        if (hasSpecificMap) {
             let beatmapName = customBeatmapName;
-            if(!beatmapName && beatmapId) {
+            if (!beatmapName && beatmapId) {
                 const nameDisplay = document.getElementById('beatmap-name-display');
                 beatmapName = nameDisplay.dataset.beatmapName || nameDisplay.textContent.replace('Beatmap ID: ', '').replace('Loading beatmap name...', '').replace('Error: ', '') || 'this map';
-                if(beatmapName.includes('Beatmap ID:') || beatmapName.includes('Error:')) beatmapName = 'this map';
+                if (beatmapName.includes('Beatmap ID:') || beatmapName.includes('Error:')) beatmapName = 'this map';
             }
-            
-            if(beatmapName) {
-                if(type === 'fc') {
-                    textParts.push(`FC ${beatmapName}`);
-                } else if(type === 's') {
-                    textParts.push(`S Rank ${beatmapName}`);
-                } else {
-                    textParts.push(`${type.toUpperCase()} ${beatmapName}`);
-                }
-            } else {
-                // Fallback if name not loaded yet
-                if(type === 'fc') {
-                    textParts.push(`FC this map`);
-                } else if(type === 's') {
-                    textParts.push(`S Rank this map`);
-                } else {
-                    textParts.push(`${type.toUpperCase()} this map`);
-                }
-            }
+
+            const mapTarget = beatmapName || 'this map';
+            baseText = `${formatGoalTypeLabel(type, Number(count), true)} ${mapTarget}`;
         } else {
-            // Base phrase
-            if(type === 's') {
-                textParts.push(`S Rank ${count} map${count>1?'s':''}`);
-            } else {
-                textParts.push(`${type.toUpperCase()} ${count} map${count>1?'s':''}`);
-            }
+            baseText = formatGoalTypeLabel(type, Number(count), false);
         }
 
-        // Mod combination (show if not "Any")
-        if(modCombo && modCombo !== 'Any' && modCombo !== 'NM') {
-            textParts.push(`with ${modCombo}`);
-        } else if(modCombo === 'NM' && !beatmapId) {
-            // Only show NM if not a specific beatmap goal
-            textParts.push(`with NM`);
+        // Mod combination
+        if (modCombo === 'Any') {
+            qualifiers.push('with any mod');
+        } else if (modCombo === 'NM') {
+            qualifiers.push('with No Mod');
+        } else if (modCombo) {
+            qualifiers.push(`with ${modCombo}`);
         }
 
-        // Star requirement (don't show count if custom beatmap is selected)
-        if(useStars && parseFloat(stars) > 0 && !customBeatmapName && !beatmapId) {
-            textParts.push(`on maps ${stars}★ or higher`); 
+        if (useStars && parseFloat(stars) > 0 && !hasSpecificMap) {
+            qualifiers.push(`on ${stars}★ maps or higher`);
         }
 
-        // Accuracy requirement
-        if(useAcc && parseFloat(acc) > 0) {
-            textParts.push(`with at least ${acc}% accuracy`);
+        if (useAcc && parseFloat(acc) > 0) {
+            qualifiers.push(`with at least ${acc}% accuracy`);
         }
         
-        // Length requirement
-        if(useLength && parseFloat(length) > 0) {
+        if (useLength && parseFloat(length) > 0) {
             const minutes = Math.floor(length / 60);
             const seconds = length % 60;
-            if(minutes > 0) {
-                textParts.push(`on maps at least ${minutes}:${String(seconds).padStart(2, '0')} long`);
+            if (minutes > 0) {
+                qualifiers.push(`on maps at least ${minutes}:${String(seconds).padStart(2, '0')} long`);
             } else {
-                textParts.push(`on maps at least ${length} seconds long`);
+                qualifiers.push(`on maps at least ${length} seconds long`);
             }
         }
         
-        // Combo requirement
-        if(useCombo && parseFloat(combo) > 0) {
-            textParts.push(`with at least ${combo} combo`);
+        if (useCombo && parseFloat(combo) > 0) {
+            qualifiers.push(`with at least ${combo} combo`);
         }
 
-        document.getElementById('sentence-preview').innerText = textParts.join(', ') || `${type.toUpperCase()} ${count} map${count>1?'s':''}`;
+        const finalText = qualifiers.length > 0 ? `${baseText} ${qualifiers.join(', ')}` : baseText;
+        document.getElementById('sentence-preview').innerText = finalText || `${type.toUpperCase()} ${count} map${count>1?'s':''}`;
     }
     function submitGoal() {
         const count = document.getElementById('goal-count').value;

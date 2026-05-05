@@ -488,13 +488,36 @@ def get_beatmap_info():
     
     token = session.get('token')
     if not token:
-        return jsonify({'error': 'Token expired'}), 401
+        return jsonify({'error': 'Token expired. Please log in again.'}), 401
     
     try:
+        def fetch_beatmap_with_headers(req_headers):
+            return requests.get(
+                f'https://osu.ppy.sh/api/v2/beatmaps/{beatmap_id}',
+                headers=req_headers,
+                timeout=10
+            )
+
         headers = {'Authorization': f'Bearer {token}'}
-        
-        # Try to fetch beatmap directly
-        response = requests.get(f'https://osu.ppy.sh/api/v2/beatmaps/{beatmap_id}', headers=headers, timeout=10)
+        response = fetch_beatmap_with_headers(headers)
+
+        # Fallback: if user token expired/invalid, use app access token so custom link lookup still works.
+        if response.status_code == 401:
+            token_response = requests.post(
+                'https://osu.ppy.sh/oauth/token',
+                json={
+                    'client_id': int(CLIENT_ID),
+                    'client_secret': CLIENT_SECRET,
+                    'grant_type': 'client_credentials',
+                    'scope': 'public'
+                },
+                timeout=10
+            )
+            if token_response.status_code == 200:
+                app_token = token_response.json().get('access_token')
+                if app_token:
+                    headers = {'Authorization': f'Bearer {app_token}'}
+                    response = fetch_beatmap_with_headers(headers)
         
         if response.status_code == 200:
             beatmap_data = response.json()
@@ -537,6 +560,8 @@ def get_beatmap_info():
         elif response.status_code == 404:
             # Beatmap not found - might be deleted or invalid ID
             return jsonify({'error': 'Beatmap not found. It may have been deleted or the ID is invalid.'}), 404
+        elif response.status_code == 401:
+            return jsonify({'error': 'Authorization failed while fetching beatmap. Please log in again.'}), 401
         else:
             # Other error - try to get more info
             error_msg = f'API returned status {response.status_code}'
@@ -747,6 +772,223 @@ def refresh_fc_status():
         'updated': updated_count,
         'errors': error_count
     })
+
+@app.route('/full_resync_goals', methods=['POST'])
+def full_resync_goals():
+    """Rebuild active goals from all saved scores and refresh FC/PFC flags."""
+    if 'user_id' not in session:
+        return jsonify({'status': 'error', 'message': 'Not logged in'}), 401
+
+    token = session.get('token')
+    if not token:
+        return jsonify({'status': 'error', 'message': 'Token expired'}), 401
+
+    headers = {'Authorization': f'Bearer {token}'}
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("""
+            SELECT id, target_progress, criteria, is_paused
+            FROM user_active_goals
+            WHERE user_id = %s AND is_completed = FALSE
+            ORDER BY id ASC
+        """, (session['user_id'],))
+        active_goals = cur.fetchall()
+
+        if not active_goals:
+            return jsonify({
+                'status': 'success',
+                'message': 'No active goals to resync.',
+                'updated_scores': 0,
+                'goal_updates': 0,
+                'goal_contributions': 0,
+                'errors': 0
+            })
+
+        goal_ids = [goal[0] for goal in active_goals]
+
+        # Reset active goals and clear old contributions for these goals.
+        cur.execute("""
+            UPDATE user_active_goals
+            SET current_progress = 0, is_completed = FALSE, completed_at = NULL
+            WHERE user_id = %s AND is_completed = FALSE
+        """, (session['user_id'],))
+        cur.execute("""
+            DELETE FROM goal_contributions
+            WHERE user_id = %s AND goal_id = ANY(%s)
+        """, (session['user_id'], goal_ids))
+
+        cur.execute("""
+            SELECT id, osu_score_id, stars, mods, mod_combination, accuracy, beatmap_id, map_length, max_combo, timestamp
+            FROM score_history
+            WHERE user_id = %s
+            ORDER BY timestamp ASC, id ASC
+        """, (session['user_id'],))
+        stored_scores = cur.fetchall()
+
+        import time
+        updated_scores = 0
+        error_count = 0
+        goal_update_count = 0
+        contribution_count = 0
+
+        goal_state = {}
+        for g_id, g_target, g_criteria, g_is_paused in active_goals:
+            goal_state[g_id] = {
+                'current': 0,
+                'target': g_target,
+                'criteria': g_criteria or {},
+                'paused': g_is_paused,
+                'completed': False,
+                'completed_at': None
+            }
+
+        for idx, (score_history_id, osu_score_id, stars, mod_group, mod_combination, accuracy, beatmap_id, map_length, score_max_combo, score_timestamp) in enumerate(stored_scores):
+            try:
+                score_response = requests.get(
+                    f'https://osu.ppy.sh/api/v2/scores/{osu_score_id}',
+                    headers=headers,
+                    timeout=10
+                )
+                if score_response.status_code != 200:
+                    error_count += 1
+                    continue
+
+                score_data = score_response.json()
+                score_rank = score_data.get('rank', '')
+                score_max_combo = score_data.get('max_combo', score_max_combo or 0)
+                legacy_perfect = bool(score_data.get('legacy_perfect', False))
+
+                # Keep score history FC/PFC synced to stable logic.
+                cur.execute("""
+                    UPDATE score_history
+                    SET is_fc = %s, is_pfc = %s, max_combo = %s
+                    WHERE id = %s
+                """, (legacy_perfect, legacy_perfect, score_max_combo, score_history_id))
+                updated_scores += 1
+
+                for g_id in goal_ids:
+                    state = goal_state[g_id]
+                    if state['paused'] or state['completed']:
+                        continue
+
+                    g_criteria = state['criteria']
+
+                    min_stars_req = g_criteria.get('min_stars', 0)
+                    if min_stars_req > 0 and stars < min_stars_req:
+                        if g_criteria.get('streak', False):
+                            state['current'] = 0
+                        continue
+
+                    req_mod_combination = g_criteria.get('mod_combination', None)
+                    req_mod = g_criteria.get('mod', 'Any')
+                    if req_mod_combination and req_mod_combination != 'Any':
+                        if mod_combination != req_mod_combination:
+                            if g_criteria.get('streak', False):
+                                state['current'] = 0
+                            continue
+                    elif req_mod != 'Any' and req_mod:
+                        if req_mod != mod_group:
+                            if g_criteria.get('streak', False):
+                                state['current'] = 0
+                            continue
+
+                    req_beatmap_id = g_criteria.get('beatmap_id', None)
+                    if req_beatmap_id is not None and beatmap_id != int(req_beatmap_id):
+                        if g_criteria.get('streak', False):
+                            state['current'] = 0
+                        continue
+
+                    if g_criteria.get('use_length', False):
+                        req_length = int(g_criteria.get('map_length', 0))
+                        if (map_length or 0) < req_length:
+                            if g_criteria.get('streak', False):
+                                state['current'] = 0
+                            continue
+
+                    if g_criteria.get('use_combo', False):
+                        req_combo = int(g_criteria.get('min_combo', 0))
+                        if (score_max_combo or 0) < req_combo:
+                            if g_criteria.get('streak', False):
+                                state['current'] = 0
+                            continue
+
+                    if g_criteria.get('use_acc', False):
+                        required_acc = float(g_criteria.get('acc_needed', 0))
+                        if ((accuracy or 0) * 100) < required_acc:
+                            if g_criteria.get('streak', False):
+                                state['current'] = 0
+                            continue
+
+                    req_type = g_criteria.get('type', 'count')
+                    success = False
+                    if req_type == 'pass':
+                        success = (score_rank != 'F')
+                    elif req_type == 'fc':
+                        success = legacy_perfect
+                    elif req_type == 'ss':
+                        success = score_rank in ['X', 'XH']
+                    elif req_type == 's':
+                        success = score_rank in ['S', 'SH']
+                    elif req_type == 'count':
+                        success = True
+
+                    if success:
+                        state['current'] += 1
+                        cur.execute("""
+                            INSERT INTO goal_contributions (goal_id, score_history_id, user_id)
+                            VALUES (%s, %s, %s)
+                        """, (g_id, score_history_id, session['user_id']))
+                        contribution_count += 1
+
+                        if state['current'] >= state['target'] and not state['completed']:
+                            state['completed'] = True
+                            state['completed_at'] = score_timestamp
+                    elif g_criteria.get('streak', False):
+                        state['current'] = 0
+
+                if (idx + 1) % 10 == 0:
+                    time.sleep(0.5)
+
+            except Exception as score_err:
+                print(f"Error resyncing score {osu_score_id}: {score_err}")
+                error_count += 1
+                continue
+
+        for g_id in goal_ids:
+            state = goal_state[g_id]
+            if state['completed']:
+                cur.execute("""
+                    UPDATE user_active_goals
+                    SET current_progress = %s, is_completed = TRUE, completed_at = %s
+                    WHERE id = %s AND user_id = %s
+                """, (state['current'], state['completed_at'], g_id, session['user_id']))
+            else:
+                cur.execute("""
+                    UPDATE user_active_goals
+                    SET current_progress = %s, is_completed = FALSE, completed_at = NULL
+                    WHERE id = %s AND user_id = %s
+                """, (state['current'], g_id, session['user_id']))
+            goal_update_count += 1
+
+        conn.commit()
+        return jsonify({
+            'status': 'success',
+            'message': f'Full resync complete. Updated {updated_scores} scores and rebuilt {goal_update_count} goals.',
+            'updated_scores': updated_scores,
+            'goal_updates': goal_update_count,
+            'goal_contributions': contribution_count,
+            'errors': error_count
+        })
+
+    except Exception as e:
+        conn.rollback()
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': f'Full resync failed: {str(e)}'}), 500
+    finally:
+        cur.close()
+        conn.close()
 
 # --- SESSION ENGINE (V6 Logic) ---
 
