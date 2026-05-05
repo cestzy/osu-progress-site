@@ -80,7 +80,6 @@ def init_db():
                 accuracy FLOAT, 
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 is_fc BOOLEAN DEFAULT FALSE,
-                is_pfc BOOLEAN DEFAULT FALSE,
                 beatmap_id BIGINT,
                 map_length INT,
                 max_combo INT
@@ -106,10 +105,17 @@ def init_db():
             cur.execute("ALTER TABLE score_history ADD COLUMN IF NOT EXISTS map_length INT;")
             cur.execute("ALTER TABLE score_history ADD COLUMN IF NOT EXISTS max_combo INT;")
             cur.execute("ALTER TABLE score_history ADD COLUMN IF NOT EXISTS is_fc BOOLEAN DEFAULT FALSE;")
-            cur.execute("ALTER TABLE score_history ADD COLUMN IF NOT EXISTS is_pfc BOOLEAN DEFAULT FALSE;")
             cur.execute("ALTER TABLE user_active_goals ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP;")
         except:
             pass  # Columns might already exist
+
+        # Performance indexes for common dashboard/goal queries.
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_score_history_user_timestamp ON score_history(user_id, timestamp DESC);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_score_history_user_osu_score_id ON score_history(user_id, osu_score_id);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_score_history_user_fc_stars ON score_history(user_id, is_fc, stars);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_user_active_goals_user_completed_order ON user_active_goals(user_id, is_completed, display_order);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_goal_contributions_user_goal ON goal_contributions(user_id, goal_id);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_goal_contributions_goal_score ON goal_contributions(goal_id, score_history_id);")
         
         conn.commit()
         cur.close()
@@ -258,6 +264,7 @@ def home():
             FROM user_active_goals 
             WHERE user_id = %s AND is_completed = TRUE
             ORDER BY display_order ASC, COALESCE(completed_at, assigned_at) DESC
+            LIMIT 200
         """, (session['user_id'],))
         completed_rows = cur.fetchall()
         
@@ -742,14 +749,12 @@ def refresh_fc_status():
             # FC/PFC source of truth: legacy_perfect from osu! API (stable logic)
             # This avoids false negatives caused by missing/inaccurate beatmap max_combo.
             is_fc = legacy_perfect
-            is_pfc = legacy_perfect
-            
             # Update the score in database
             cur.execute("""
                 UPDATE score_history 
-                SET is_fc = %s, is_pfc = %s, max_combo = %s
+                SET is_fc = %s, max_combo = %s
                 WHERE id = %s
-            """, (is_fc, is_pfc, score_max_combo, score_history_id))
+            """, (is_fc, score_max_combo, score_history_id))
             
             updated_count += 1
             
@@ -863,9 +868,9 @@ def full_resync_goals():
                 # Keep score history FC/PFC synced to stable logic.
                 cur.execute("""
                     UPDATE score_history
-                    SET is_fc = %s, is_pfc = %s, max_combo = %s
+                    SET is_fc = %s, max_combo = %s
                     WHERE id = %s
-                """, (legacy_perfect, legacy_perfect, score_max_combo, score_history_id))
+                """, (legacy_perfect, score_max_combo, score_history_id))
                 updated_scores += 1
 
                 for g_id in goal_ids:
@@ -1018,7 +1023,7 @@ def process_session_logic():
             osu_score_id = score['id']
             
             # V6: Duplication check
-            cur.execute("SELECT id FROM score_history WHERE osu_score_id = %s", (osu_score_id,)) 
+            cur.execute("SELECT id FROM score_history WHERE user_id = %s AND osu_score_id = %s", (session['user_id'], osu_score_id))
             if cur.fetchone(): continue
 
             updates_made = True
@@ -1084,7 +1089,6 @@ def process_session_logic():
             # This is more reliable than inferring from combo thresholds.
             legacy_perfect = bool(score.get('legacy_perfect', False))
             is_fc = legacy_perfect
-            is_pfc = legacy_perfect
 
             mod_group = "NM"
             if "DT" in raw_mods or "NC" in raw_mods: mod_group = "DT"
@@ -1185,12 +1189,12 @@ def process_session_logic():
                     if g_criteria.get('streak', False):
                         cur.execute("UPDATE user_active_goals SET current_progress = 0 WHERE id = %s", (g_id,))
 
-            # Save History (includes is_fc, is_pfc, mod_combination, beatmap_id, map_length, max_combo)
+            # Save History (is_fc uses legacy_perfect stable logic)
             cur.execute("""
-                INSERT INTO score_history (user_id, osu_score_id, beatmap_name, mods, mod_combination, stars, effective_stars, accuracy, is_fc, is_pfc, beatmap_id, map_length, max_combo)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO score_history (user_id, osu_score_id, beatmap_name, mods, mod_combination, stars, effective_stars, accuracy, is_fc, beatmap_id, map_length, max_combo)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
-            """, (session['user_id'], osu_score_id, beatmapset['title'], mod_group, mod_combination, stars, eff_stars, acc, is_fc, is_pfc, beatmap_id, map_length, score['max_combo']))
+            """, (session['user_id'], osu_score_id, beatmapset['title'], mod_group, mod_combination, stars, eff_stars, acc, is_fc, beatmap_id, map_length, score['max_combo']))
             
             score_history_id = cur.fetchone()[0]
             
