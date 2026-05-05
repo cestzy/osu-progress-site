@@ -152,6 +152,40 @@ def calculate_effective_stars(stars, acc, max_combo, map_max_combo):
         combo_ratio = 1.0
     return stars * (acc ** 3) * combo_ratio
 
+def resolve_is_fc(score_data, map_max_combo=0):
+    """
+    Robust FC resolver across osu! API payload variants.
+    Primary: legacy_perfect.
+    Fallbacks: SS rank, no-miss + 100% accuracy, exact map combo match.
+    """
+    if not isinstance(score_data, dict):
+        return False
+
+    legacy_perfect = bool(score_data.get('legacy_perfect', False))
+    if legacy_perfect:
+        return True
+
+    rank = (score_data.get('rank') or '').upper()
+    if rank in ['X', 'XH', 'SS', 'SSH']:
+        return True
+
+    statistics = score_data.get('statistics', {}) or {}
+    miss_count = statistics.get('miss_count', 0) or 0
+    if miss_count > 0:
+        return False
+
+    accuracy = score_data.get('accuracy', 0) or 0
+    if accuracy >= 0.999999:
+        return True
+
+    score_max_combo = score_data.get('max_combo', 0) or 0
+    beatmap = score_data.get('beatmap', {}) or {}
+    resolved_map_max_combo = map_max_combo or beatmap.get('max_combo', 0) or 0
+    if resolved_map_max_combo > 0 and score_max_combo == resolved_map_max_combo:
+        return True
+
+    return False
+
 # --- MAIN ROUTES ---
 
 @app.route('/')
@@ -744,11 +778,9 @@ def refresh_fc_status():
             
             # Get score fields
             score_max_combo = score_data.get('max_combo', 0)
-            legacy_perfect = bool(score_data.get('legacy_perfect', False))
             
-            # FC/PFC source of truth: legacy_perfect from osu! API (stable logic)
-            # This avoids false negatives caused by missing/inaccurate beatmap max_combo.
-            is_fc = legacy_perfect
+            # FC resolution with fallbacks for payloads where legacy_perfect can be unreliable.
+            is_fc = resolve_is_fc(score_data)
             # Update the score in database
             cur.execute("""
                 UPDATE score_history 
@@ -863,14 +895,14 @@ def full_resync_goals():
                 score_data = score_response.json()
                 score_rank = score_data.get('rank', '')
                 score_max_combo = score_data.get('max_combo', score_max_combo or 0)
-                legacy_perfect = bool(score_data.get('legacy_perfect', False))
+                is_fc = resolve_is_fc(score_data)
 
                 # Keep score history FC/PFC synced to stable logic.
                 cur.execute("""
                     UPDATE score_history
                     SET is_fc = %s, max_combo = %s
                     WHERE id = %s
-                """, (legacy_perfect, score_max_combo, score_history_id))
+                """, (is_fc, score_max_combo, score_history_id))
                 updated_scores += 1
 
                 for g_id in goal_ids:
@@ -931,7 +963,7 @@ def full_resync_goals():
                     if req_type == 'pass':
                         success = (score_rank != 'F')
                     elif req_type == 'fc':
-                        success = legacy_perfect
+                        success = is_fc
                     elif req_type == 'ss':
                         success = score_rank in ['X', 'XH']
                     elif req_type == 's':
@@ -1085,10 +1117,8 @@ def process_session_logic():
             count_50 = statistics.get('count_50', 0)
             count_300 = statistics.get('count_300', 0)
             
-            # FC/PFC source of truth: legacy_perfect from osu! API (stable logic).
-            # This is more reliable than inferring from combo thresholds.
-            legacy_perfect = bool(score.get('legacy_perfect', False))
-            is_fc = legacy_perfect
+            # Resolve FC with fallbacks (legacy_perfect, SS rank, no-miss 100%, exact combo match).
+            is_fc = resolve_is_fc(score, map_max_combo)
 
             mod_group = "NM"
             if "DT" in raw_mods or "NC" in raw_mods: mod_group = "DT"
@@ -1189,7 +1219,7 @@ def process_session_logic():
                     if g_criteria.get('streak', False):
                         cur.execute("UPDATE user_active_goals SET current_progress = 0 WHERE id = %s", (g_id,))
 
-            # Save History (is_fc uses legacy_perfect stable logic)
+            # Save History (is_fc uses robust FC resolution)
             cur.execute("""
                 INSERT INTO score_history (user_id, osu_score_id, beatmap_name, mods, mod_combination, stars, effective_stars, accuracy, is_fc, beatmap_id, map_length, max_combo)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
