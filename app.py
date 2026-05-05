@@ -682,7 +682,7 @@ def refresh_fc_status():
     
     # Get all scores for this user
     cur.execute("""
-        SELECT id, osu_score_id, beatmap_id, max_combo 
+        SELECT id, osu_score_id, max_combo 
         FROM score_history 
         WHERE user_id = %s
         ORDER BY timestamp DESC
@@ -695,7 +695,7 @@ def refresh_fc_status():
     
     import time
     
-    for idx, (score_history_id, osu_score_id, beatmap_id, stored_max_combo) in enumerate(scores_to_refresh):
+    for idx, (score_history_id, osu_score_id, stored_max_combo) in enumerate(scores_to_refresh):
         try:
             # Fetch score data from osu! API
             score_response = requests.get(
@@ -710,57 +710,14 @@ def refresh_fc_status():
             
             score_data = score_response.json()
             
-            # Get score statistics
-            statistics = score_data.get('statistics', {})
-            miss_count = statistics.get('miss_count', 0)
-            score_rank = score_data.get('rank', '')
+            # Get score fields
             score_max_combo = score_data.get('max_combo', 0)
+            legacy_perfect = bool(score_data.get('legacy_perfect', False))
             
-            # Fetch beatmap data to get map_max_combo
-            if beatmap_id:
-                beatmap_response = requests.get(
-                    f'https://osu.ppy.sh/api/v2/beatmaps/{beatmap_id}',
-                    headers=headers,
-                    timeout=10
-                )
-                
-                if beatmap_response.status_code == 200:
-                    beatmap_data = beatmap_response.json()
-                    map_max_combo = beatmap_data.get('max_combo', 0)
-                else:
-                    map_max_combo = 0
-            else:
-                map_max_combo = 0
-            
-            # Recalculate FC status using the same logic as process_session_logic
-            is_fc = False
-            is_pfc = False
-            
-            if score_rank == 'F':
-                is_fc = False
-            elif miss_count > 0:
-                is_fc = False
-            elif score_rank in ['X', 'XH']:
-                is_fc = True
-            elif map_max_combo > 0:
-                combo_diff = map_max_combo - score_max_combo
-                
-                if combo_diff == 0:
-                    is_fc = True
-                    is_pfc = (miss_count == 0)
-                elif combo_diff < 0:
-                    is_fc = False
-                else:
-                    percentage_threshold = int(map_max_combo * 0.05)
-                    absolute_threshold = 50
-                    threshold = min(percentage_threshold, absolute_threshold)
-                    
-                    if combo_diff <= threshold:
-                        is_fc = True
-                    else:
-                        is_fc = False
-            else:
-                is_fc = False
+            # FC/PFC source of truth: legacy_perfect from osu! API (stable logic)
+            # This avoids false negatives caused by missing/inaccurate beatmap max_combo.
+            is_fc = legacy_perfect
+            is_pfc = legacy_perfect
             
             # Update the score in database
             cur.execute("""
@@ -881,76 +838,11 @@ def process_session_logic():
             count_50 = statistics.get('count_50', 0)
             count_300 = statistics.get('count_300', 0)
             
-            # PFC (Perfect Full Combo) Logic:
-            # PFC = max_combo exactly matches map_max_combo AND no misses
-            # Can be S rank or SS rank, can have 100s/50s (missing slider ends)
-            # The key is: combo matches exactly, meaning no slider breaks occurred
-            # Requires valid map_max_combo from beatmap
-            is_pfc = (miss_count == 0 and 
-                     map_max_combo > 0 and 
-                     score['max_combo'] == map_max_combo)
-            
-            # FC (Full Combo) Logic (Community Definition):
-            # True FC = no misses, no slider breaks, only missing slider ends
-            # FC scores that lost combo only via dropped slider ends (100s/50s) are widely 
-            # considered by the community to be full combos, even if max_combo < map_max_combo.
-            # This differs from the game client and website's display.
-            #
-            # The challenge: Distinguishing dropped slider ends from slider breaks
-            # - Dropped slider ends: combo is close to map max (e.g., 370/371, 1130/1159, 2362/2366) = FC
-            # - Slider break: combo is significantly lower (e.g., 183/442) = NOT FC
-            #
-            # Algorithm:
-            # 1. F rank or has misses = NOT FC
-            # 2. SS rank (X/XH) with no misses = Always FC (even if map_max_combo unavailable)
-            # 3. If map_max_combo is available:
-            #    - If combo matches map max exactly = PFC (and FC)
-            #    - If combo is close to map max (within threshold) = FC (dropped slider ends)
-            #    - If combo is significantly lower = NOT FC (slider break)
-            # 4. If map_max_combo unavailable = Only SS rank can be FC (conservative)
-            #
-            # Threshold: Use percentage-based approach with reasonable limits
-            # Examples: 370/371 (0.27% off) = FC, 1130/1159 (2.5% off) = FC, 2362/2366 (0.17% off) = FC
-            # Use 5% or 50 combo, whichever is smaller, to account for larger maps and edge cases
-            # But be strict: 183/442 (58% off) = NOT FC (slider break)
-            
-            is_fc = False
-            if score_rank == 'F':
-                # F rank = Failed, never FC
-                is_fc = False
-            elif miss_count > 0:
-                # Has misses = NOT FC
-                is_fc = False
-            elif score_rank in ['X', 'XH']:
-                # SS rank with no misses = Always FC (even if map_max_combo unavailable)
-                is_fc = True
-            elif map_max_combo > 0:
-                # We have valid map_max_combo, can calculate FC properly
-                combo_diff = map_max_combo - score['max_combo']
-                
-                if combo_diff == 0:
-                    # Combo matches exactly = PFC (and FC)
-                    is_fc = True
-                elif combo_diff < 0:
-                    # Player combo exceeds map max (shouldn't happen, but be safe)
-                    is_fc = False
-                else:
-                    # Calculate threshold: 5% of map max combo, or 50 combo, whichever is smaller
-                    # This handles cases like 370/371 (1 off), 1130/1159 (29 off), and 2362/2366 (4 off)
-                    # But rejects cases like 183/442 (259 off, 58% difference)
-                    percentage_threshold = int(map_max_combo * 0.05)
-                    absolute_threshold = 50
-                    threshold = min(percentage_threshold, absolute_threshold)
-                    
-                    if combo_diff <= threshold:
-                        # Combo is close to map max (likely dropped slider ends) = FC
-                        is_fc = True
-                    else:
-                        # Combo is significantly lower (likely slider break) = NOT FC
-                        is_fc = False
-            else:
-                # map_max_combo unavailable - be conservative, only SS rank is FC
-                is_fc = False
+            # FC/PFC source of truth: legacy_perfect from osu! API (stable logic).
+            # This is more reliable than inferring from combo thresholds.
+            legacy_perfect = bool(score.get('legacy_perfect', False))
+            is_fc = legacy_perfect
+            is_pfc = legacy_perfect
 
             mod_group = "NM"
             if "DT" in raw_mods or "NC" in raw_mods: mod_group = "DT"
