@@ -182,7 +182,6 @@
                     <label>Beatmap Link or Name (Optional)</label>
                     <div style="display: flex; gap: 10px; align-items: flex-end;">
                         <input type="text" id="goal-beatmap-link" placeholder="https://osu.ppy.sh/beatmaps/123456 or SPUTNIK-3 by II-L" class="input-dark" style="flex: 1;" oninput="parseBeatmapLink()">
-                        <button class="btn-pill" onclick="loadBeatmapInPreview()" style="padding: 8px 15px; white-space: nowrap;">Load in Beatmap</button>
                         <button class="btn-pill" onclick="removeBeatmapFromPreview()" style="padding: 8px 15px; white-space: nowrap; background: #555; display: none;" id="remove-beatmap-btn">Remove Beatmap</button>
                     </div>
                     <small style="color: #888; font-size: 11px;">Paste osu! beatmap URL or enter beatmap name to create a specific map goal</small>
@@ -355,7 +354,7 @@
     const goalsPerPage = 6;
     
     function updateGoalPagination() {
-        const goals = document.querySelectorAll('.osu-goal-card');
+        const goals = document.querySelectorAll('#goalListDashboard .osu-goal-card');
         const totalPages = Math.ceil(goals.length / goalsPerPage);
         const pagination = document.getElementById('goalPagination');
         const pageInfo = document.getElementById('goalPageInfo');
@@ -387,7 +386,7 @@
     }
     
     function nextGoalPage() {
-        const goals = document.querySelectorAll('.osu-goal-card');
+        const goals = document.querySelectorAll('#goalListDashboard .osu-goal-card');
         const totalPages = Math.ceil(goals.length / goalsPerPage);
         if(currentGoalPage < totalPages - 1) {
             currentGoalPage++;
@@ -604,7 +603,19 @@
         m.style.display = m.style.display === 'block' ? 'none' : 'block';
     }
     function updateGoalStatus(id, act) { 
-        fetch('/update_goal_status', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({goal_id:id, action:act})}).then(()=>location.reload()); 
+        const isDeleteAction = act === 'delete' || act === 'delete-completed';
+        if (isDeleteAction && !confirm('Delete this goal permanently?')) return;
+
+        if (isDeleteAction) {
+            showToast('Deleting Goal', 'Please wait...');
+        }
+
+        fetch('/update_goal_status', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({goal_id:id, action:act})
+        })
+        .then(() => location.reload());
     }
     
     // --- GOAL CREATOR V6 ---
@@ -649,10 +660,26 @@
             updateSentencePreview();
             return;
         }
+
+        // NM means "No Mod", so it cannot be combined with any other mod.
+        if (event && event.target.value === 'NM' && nmChecked) {
+            document.getElementById('mod-any').checked = false;
+            mods.forEach(mod => {
+                document.getElementById(`mod-${mod.toLowerCase()}`).checked = false;
+            });
+            document.getElementById('goal-mod-combo').value = 'NM';
+            updateSentencePreview();
+            return;
+        }
         
         // If a specific mod is checked, uncheck "Any"
         if ((nmChecked || selectedMods.length > 0) && event && event.target.value !== 'Any') {
             document.getElementById('mod-any').checked = false;
+        }
+
+        // If specific mods are selected, NM must be unchecked.
+        if (selectedMods.length > 0 && nmChecked) {
+            document.getElementById('mod-nm').checked = false;
         }
         
         // Check for opposing mods
@@ -677,7 +704,8 @@
                 return checkbox && checkbox.checked;
             });
             // Sort mods alphabetically for consistent matching
-            const modCombo = selectedMods2.length > 0 ? selectedMods2.sort().join('') : (nmChecked ? 'NM' : 'Any');
+            const nmStillChecked = document.getElementById('mod-nm').checked;
+            const modCombo = selectedMods2.length > 0 ? selectedMods2.sort().join('') : (nmStillChecked ? 'NM' : 'Any');
             document.getElementById('goal-mod-combo').value = modCombo;
             updateSentencePreview();
             return;
@@ -698,7 +726,8 @@
                 return checkbox && checkbox.checked;
             });
             // Sort mods alphabetically for consistent matching
-            const modCombo = selectedMods2.length > 0 ? selectedMods2.sort().join('') : (nmChecked ? 'NM' : 'Any');
+            const nmStillChecked = document.getElementById('mod-nm').checked;
+            const modCombo = selectedMods2.length > 0 ? selectedMods2.sort().join('') : (nmStillChecked ? 'NM' : 'Any');
             document.getElementById('goal-mod-combo').value = modCombo;
             updateSentencePreview();
             return;
@@ -706,7 +735,8 @@
         
         // Determine final mod combination
         let modCombo = 'Any';
-        if (nmChecked && selectedMods.length === 0) {
+        const finalNmChecked = document.getElementById('mod-nm').checked;
+        if (finalNmChecked && selectedMods.length === 0) {
             modCombo = 'NM';
         } else if (selectedMods.length > 0) {
             modCombo = selectedMods.sort().join('');
