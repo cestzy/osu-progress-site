@@ -343,11 +343,28 @@
     </div>
 </div>
 
+<div id="goal-delete-modal" class="modal hidden" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.82); z-index:10000; justify-content:center; align-items:center;">
+    <div class="glass-panel" style="width:min(420px, 92%); padding:26px; border:1px solid rgba(255,102,170,0.45); box-shadow:0 0 24px rgba(255,102,170,0.2); text-align:center;">
+        <div style="font-size:36px; color:var(--osu-pink); margin-bottom:8px;">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+        </div>
+        <h3 style="margin:0 0 8px 0; color:#fff;">Delete Goal?</h3>
+        <p style="margin:0; color:#bbb;">This action cannot be undone. Progress and contributed maps for this goal will be removed.</p>
+        <div style="margin-top:22px; display:flex; gap:10px; justify-content:center;">
+            <button class="btn-pill" style="background:#555;" onclick="closeGoalDeleteModal()">Cancel</button>
+            <button class="btn-pill" id="goal-delete-confirm-btn" style="background:linear-gradient(135deg, #ff5f9e, #ff3d8a);" onclick="confirmGoalDelete()">
+                <i class="fa-solid fa-trash"></i> Delete Goal
+            </button>
+        </div>
+    </div>
+</div>
+
 <script>
     // --- V6 JS LOGIC (NO REFRESH) ---
     let pollInterval;
     let secondsElapsed = 0;
     let timerInterval;
+    let pendingGoalDelete = null;
 
     // Goal pagination
     let currentGoalPage = 0;
@@ -604,10 +621,10 @@
     }
     function updateGoalStatus(id, act) { 
         const isDeleteAction = act === 'delete' || act === 'delete-completed';
-        if (isDeleteAction && !confirm('Delete this goal permanently?')) return;
-
         if (isDeleteAction) {
-            showToast('Deleting Goal', 'Please wait...');
+            pendingGoalDelete = { id, act };
+            openGoalDeleteModal();
+            return;
         }
 
         fetch('/update_goal_status', {
@@ -616,6 +633,50 @@
             body:JSON.stringify({goal_id:id, action:act})
         })
         .then(() => location.reload());
+    }
+
+    function openGoalDeleteModal() {
+        const modal = document.getElementById('goal-delete-modal');
+        if (!modal) return;
+        modal.style.display = 'flex';
+    }
+
+    function closeGoalDeleteModal() {
+        const modal = document.getElementById('goal-delete-modal');
+        const confirmBtn = document.getElementById('goal-delete-confirm-btn');
+        if (modal) modal.style.display = 'none';
+        if (confirmBtn) {
+            confirmBtn.disabled = false;
+            confirmBtn.innerHTML = '<i class="fa-solid fa-trash"></i> Delete Goal';
+        }
+        pendingGoalDelete = null;
+    }
+
+    function confirmGoalDelete() {
+        if (!pendingGoalDelete) return;
+
+        const { id, act } = pendingGoalDelete;
+        const confirmBtn = document.getElementById('goal-delete-confirm-btn');
+        if (confirmBtn) {
+            confirmBtn.disabled = true;
+            confirmBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Deleting...';
+        }
+
+        showToast('Deleting Goal', 'Please wait...');
+
+        fetch('/update_goal_status', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({goal_id:id, action:act})
+        })
+        .then(() => location.reload())
+        .catch(() => {
+            showToast('Error', 'Failed to delete goal');
+            if (confirmBtn) {
+                confirmBtn.disabled = false;
+                confirmBtn.innerHTML = '<i class="fa-solid fa-trash"></i> Delete Goal';
+            }
+        });
     }
     
     // --- GOAL CREATOR V6 ---
